@@ -468,8 +468,9 @@ function AuthScreen({
       setError('Enter your email and password to continue.');
       return;
     }
-    if (isRegistering && (!fields.name.trim() || !fields.propertyName.trim() || !fields.municipality.trim() || !consent)) {
-      setError('Add your name, farm, municipality and reporting consent.');
+    const farmArea = Number(fields.sizeHectares);
+    if (isRegistering && (!fields.name.trim() || !fields.propertyName.trim() || !fields.municipality.trim() || !fields.sizeHectares.trim() || !Number.isFinite(farmArea) || farmArea <= 0 || !consent)) {
+      setError('Add your name, farm, municipality, farm area greater than zero and reporting consent.');
       return;
     }
     if (isRegistering && currentPassword.length < 10) {
@@ -548,8 +549,9 @@ function AuthScreen({
                 <Field label="Municipality / city" value={fields.municipality} onChangeText={value => setField('municipality', value)} placeholder="Your municipality" autoCapitalize="words" />
                 <View style={styles.fieldRow}>
                   <View style={styles.fieldGrow}><Field label="Barangay (optional)" value={fields.barangay} onChangeText={value => setField('barangay', value)} placeholder="Barangay" autoCapitalize="words" /></View>
-                  <View style={styles.fieldNarrow}><Field label="Farm size (ha)" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="Optional" keyboardType="decimal-pad" /></View>
+                  <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" /></View>
                 </View>
+                <Text style={styles.helperText}>Required for your area-sized farm circle on the map. Exact GPS remains optional and requires consent.</Text>
                 <ToggleLine
                   title="Save an exact GPS pin for my farm (optional)"
                   description="Only you and authorized SRA staff can view it. The pin is not shared with community posts."
@@ -651,8 +653,9 @@ function FarmerShell(props: {
   const dashboardStatus = networkConnected ? (serverReachable ? 'Connected' : 'Server checking') : 'Offline mode';
 
   const saveFarm = async () => {
-    if (!farmValues.name.trim() || !farmValues.municipality.trim()) {
-      setFarmMessage('Enter a farm name and municipality.');
+    const farmArea = Number(farmValues.size);
+    if (!farmValues.name.trim() || !farmValues.municipality.trim() || !farmValues.size.trim() || !Number.isFinite(farmArea) || farmArea <= 0) {
+      setFarmMessage('Enter a farm name, municipality and farm area greater than zero.');
       return;
     }
     setFarmBusy(true);
@@ -781,7 +784,7 @@ function FarmerShell(props: {
           </View>
           <Field label="Municipality / city" value={farmValues.municipality} onChangeText={value => setFarmValues(current => ({...current, municipality: value}))} placeholder="Municipality / city" autoCapitalize="words" />
           <Field label="Barangay (optional)" value={farmValues.barangay} onChangeText={value => setFarmValues(current => ({...current, barangay: value}))} placeholder="Barangay" autoCapitalize="words" />
-          <Field label="Farm size in hectares (optional)" value={farmValues.size} onChangeText={value => setFarmValues(current => ({...current, size: value.replace(/[^0-9.]/g, '')}))} placeholder="0.00" keyboardType="decimal-pad" />
+          <Field label="Farm area (hectares) *" value={farmValues.size} onChangeText={value => setFarmValues(current => ({...current, size: value.replace(/[^0-9.]/g, '')}))} placeholder="0.00" keyboardType="decimal-pad" />
           <ToggleLine
             title="Save an exact GPS pin for my farm (optional)"
             description="Your exact pin is visible only to you and authorized SRA staff."
@@ -809,7 +812,7 @@ function FarmerShell(props: {
     </Card>
   );
 
-  const mapHtml = useMemo(() => createMapHtml(properties), [properties]);
+  const mapHtml = useMemo(() => createMapHtml(properties, reports, queue), [properties, reports, queue]);
 
   const renderCurrentScreen = () => {
     switch (tab) {
@@ -881,7 +884,7 @@ function FarmerShell(props: {
       case 'map':
         return (
           <>
-            <PageIntro eyebrow="NEGROS ORIENTAL & OCCIDENTAL" title="Farm map" subtitle="A real OpenStreetMap view centered on the Negros region. Only your consented farm pins appear." />
+            <PageIntro eyebrow="NEGROS ORIENTAL & OCCIDENTAL" title="Farm map" subtitle="Circle size follows your recorded farm area. Color follows your latest farmer-submitted report severity. Exact pins require your consent." />
             <Card style={styles.mapCard}>
               {hasInternet ? (
                 <WebView
@@ -902,6 +905,16 @@ function FarmerShell(props: {
                   <Text style={styles.cardSub}>Your saved farms remain available below. Map tiles load only while connected.</Text>
                 </View>
               )}
+            </Card>
+            <Card>
+              <Text style={styles.cardTitle}>Area &amp; report colors</Text>
+              <Text style={styles.cardSub}>Circles are approximate and use your recorded hectares. Report severity is your observation, not an SRA diagnosis.</Text>
+              <View style={styles.mapLegend}>
+                <MapLegendItem color="#64748b" label="Gray · no report / not assessed" />
+                <MapLegendItem color="#16834a" label="Green · low" />
+                <MapLegendItem color="#d97706" label="Amber · moderate" />
+                <MapLegendItem color="#dc2626" label="Red · severe" />
+              </View>
             </Card>
             {properties.length === 0 ? (
               <Card><EmptyState icon="⌖" title="No farm records" description="Add a farm to see it in your account." /></Card>
@@ -1244,9 +1257,54 @@ function NavButton({icon, label, active, onPress, badge = 0}: {icon: string; lab
   </TouchableOpacity>;
 }
 
-function createMapHtml(properties: FarmProperty[]): string {
-  const markers = properties.filter(property => property.latitude !== null && property.longitude !== null && property.location_consent).map(property => [property.latitude, property.longitude]);
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#eaf0ea}.leaflet-control-attribution{font-size:9px!important}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map('map').setView([9.58,122.95],8);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);const farms=${JSON.stringify(markers)};farms.forEach(([lat,lng])=>L.circleMarker([lat,lng],{radius:8,color:'#ffffff',weight:3,fillColor:'#16834a',fillOpacity:1}).addTo(map).bindPopup('Your farm'));if(farms.length){map.fitBounds(L.latLngBounds(farms).pad(0.35),{maxZoom:11})}</script></body></html>`;
+function MapLegendItem({color, label}: {color: string; label: string}) {
+  return <View style={styles.mapLegendItem}><View style={[styles.mapLegendDot, {backgroundColor: color}]} /><Text style={styles.mapLegendText}>{label}</Text></View>;
+}
+
+function createMapHtml(properties: FarmProperty[], reports: FieldReport[], queue: QueuedReport[]): string {
+  const latestByProperty = new Map<number, {severity: string; submittedAt: number}>();
+  const rememberReport = (propertyId: number | null | undefined, severity: string, submittedAt: string) => {
+    if (!propertyId || !Number.isFinite(propertyId)) return;
+    const timestamp = Date.parse(submittedAt) || 0;
+    const previous = latestByProperty.get(propertyId);
+    if (!previous || timestamp >= previous.submittedAt) latestByProperty.set(propertyId, {severity, submittedAt: timestamp});
+  };
+  reports.forEach(report => rememberReport(report.property_id, report.farmer_severity, report.submitted_at));
+  queue.forEach(item => rememberReport(Number(item.body.propertyId), String(item.body.farmerSeverity || 'Not assessed'), item.createdAt));
+
+  const farms = properties
+    .filter(property => property.latitude !== null && property.longitude !== null && property.location_consent)
+    .map(property => ({
+      latitude: property.latitude,
+      longitude: property.longitude,
+      name: property.name,
+      areaHectares: property.size_hectares === null ? null : Number(property.size_hectares),
+      severity: latestByProperty.get(property.id)?.severity || null,
+    }));
+  const encodedFarms = JSON.stringify(farms).replace(/</g, '\\u003c');
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#eaf0ea}.leaflet-control-attribution{font-size:9px!important}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
+    const map=L.map('map').setView([9.58,122.95],8);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+    const farms=${encodedFarms};
+    const colors={Low:'#16834a',Moderate:'#d97706',Severe:'#dc2626','Not assessed':'#64748b'};
+    const layers=[];
+    farms.forEach(farm=>{
+      const center=[farm.latitude,farm.longitude];
+      const color=colors[farm.severity]||'#64748b';
+      const area=Number(farm.areaHectares);
+      if(Number.isFinite(area)&&area>0){
+        const radius=Math.sqrt((area*10000)/Math.PI);
+        layers.push(L.circle(center,{radius,color,weight:2,fillColor:color,fillOpacity:0.2}).addTo(map));
+      }
+      const marker=L.circleMarker(center,{radius:8,color:'#ffffff',weight:3,fillColor:color,fillOpacity:1}).addTo(map);
+      const popup=document.createElement('div');
+      const title=document.createElement('strong');title.textContent=farm.name;popup.append(title);
+      const size=document.createElement('div');size.textContent=Number.isFinite(area)&&area>0?'Farm area: '+area+' ha':'Farm area not recorded';popup.append(size);
+      const report=document.createElement('div');report.textContent=farm.severity?'Latest farmer-reported severity: '+farm.severity:'No farmer report submitted';popup.append(report);
+      marker.bindPopup(popup);layers.push(marker);
+    });
+    if(layers.length){map.fitBounds(L.featureGroup(layers).getBounds().pad(0.35),{maxZoom:11})}
+  </script></body></html>`;
 }
 
 function localDate(): string {
@@ -1387,6 +1445,10 @@ const styles = StyleSheet.create({
   removeText: {color: C.red, fontSize: 11, fontWeight: '700'},
   formFooter: {textAlign: 'center', fontSize: 10, color: C.muted, marginTop: 8},
   mapCard: {padding: 0, overflow: 'hidden'},
+  mapLegend: {flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 2},
+  mapLegendItem: {flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 140},
+  mapLegendDot: {width: 10, height: 10, borderRadius: 5},
+  mapLegendText: {fontSize: 11, color: C.muted},
   mapWebView: {height: 360, backgroundColor: '#eaf0ea'},
   mapOffline: {height: 240, alignItems: 'center', justifyContent: 'center', padding: 25, backgroundColor: '#EAF0EA'},
   mapOfflineIcon: {fontSize: 35, color: C.green, marginBottom: 8},

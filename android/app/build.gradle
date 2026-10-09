@@ -7,6 +7,9 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
+    // Package JavaScript in the debug APK so a phone can launch without Metro.
+    debuggableVariants = []
+
     /* Folders */
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")

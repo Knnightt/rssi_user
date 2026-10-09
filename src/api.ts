@@ -24,6 +24,7 @@ export type FieldReport = {
   id: number;
   code: string;
   property_name: string;
+  property_id?: number | null;
   province: string;
   municipality: string;
   observed_at: string;
