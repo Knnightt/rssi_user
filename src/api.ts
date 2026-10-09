@@ -1,4 +1,4 @@
-import {API_BASE_URL, API_PREFIX} from './config';
+import {API_PREFIX, getConfiguredApiBaseUrl} from './config';
 
 export type Farmer = {
   id: number;
@@ -109,7 +109,7 @@ export async function apiRequest<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, {
+    response = await fetch(`${getConfiguredApiBaseUrl()}${API_PREFIX}${path}`, {
       ...options,
       headers,
     });
@@ -136,7 +136,7 @@ export async function uploadPhotos(
   const headers = new Headers({Accept: 'application/json', Authorization: `Bearer ${token}`});
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${API_PREFIX}/farmers/me/reports/${reportId}/photos`, {
+    response = await fetch(`${getConfiguredApiBaseUrl()}${API_PREFIX}/farmers/me/reports/${reportId}/photos`, {
       method: 'POST',
       headers,
       body: form,
@@ -148,5 +148,5 @@ export async function uploadPhotos(
 }
 
 export function getApiBaseUrl(): string {
-  return API_BASE_URL;
+  return getConfiguredApiBaseUrl();
 }

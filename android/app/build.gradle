@@ -96,11 +96,15 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // Allow the development build to reach the local HTTP API on the SRA LAN.
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
+            // Production installations should use HTTPS.
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

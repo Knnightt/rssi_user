@@ -33,6 +33,15 @@
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- Development API is served over HTTP on the SRA LAN. Keep this exception scoped to that subnet. -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>192.168.15.0/24</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>RSSI uses your location only when you choose to save a precise pin for your own farm.</string>

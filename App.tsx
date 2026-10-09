@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   AppState,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -18,6 +19,7 @@ import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import {WebView} from 'react-native-webview';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import {captureFarmCoordinates, FarmCoordinates} from './src/location';
+import {configureApiBaseUrl, getConfiguredApiBaseUrl} from './src/config';
 import {
   apiRequest,
   ApiError,
@@ -88,10 +90,12 @@ function RSSIApp() {
   const [community, setCommunity] = useState<CommunityUpdate[]>([]);
   const [tab, setTab] = useState<Tab>('home');
   const [hasInternet, setHasInternet] = useState(false);
+  const [networkConnected, setNetworkConnected] = useState(false);
   const [serverReachable, setServerReachable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [appReady, setAppReady] = useState(false);
+  const [apiBaseUrl, setApiBaseUrl] = useState(getConfiguredApiBaseUrl());
   const syncLock = useRef(false);
   const activeTab = useRef(tab);
   activeTab.current = tab;
@@ -101,10 +105,18 @@ function RSSIApp() {
     let mounted = true;
     (async () => {
       try {
-        const [savedToken, savedUser] = await Promise.all([
+        const [savedToken, savedUser, savedApiBaseUrl] = await Promise.all([
           readSecure('session-token'),
           readSecureJson<Farmer | null>('session-user', null),
+          readSecure('api-base-url'),
         ]);
+        if (savedApiBaseUrl) {
+          try {
+            setApiBaseUrl(configureApiBaseUrl(savedApiBaseUrl));
+          } catch {
+            // A stale invalid value must not prevent the farmer from opening the app.
+          }
+        }
         if (!mounted) {
           return;
         }
@@ -140,6 +152,7 @@ function RSSIApp() {
     setToken(auth.access_token);
     setUser(auth.user);
     await Promise.all([writeSecure('session-token', auth.access_token), writeSecureJson('session-user', auth.user)]);
+    setQueue(await readQueue(auth.user.id));
     if (auth.properties) {
       setProperties(auth.properties);
       await writeCache(auth.user.id, {
@@ -151,6 +164,12 @@ function RSSIApp() {
     }
     setTab('home');
     setNotice('Welcome to RSSI. Your dashboard will show your saved farm and reports.');
+  }, []);
+
+  const saveApiBaseUrl = useCallback(async (value: string) => {
+    const configured = configureApiBaseUrl(value);
+    await writeSecure('api-base-url', configured);
+    setApiBaseUrl(configured);
   }, []);
 
   const refreshFromServer = useCallback(async () => {
@@ -188,24 +207,25 @@ function RSSIApp() {
     }
   }, [token, userId]);
 
-  const syncAndRefresh = useCallback(async () => {
+  const syncAndRefresh = useCallback(async (notify = false) => {
     if (!token || !userId || syncLock.current) {
       return;
     }
     syncLock.current = true;
     setBusy(true);
     try {
+      const hadQueuedReports = (await readQueue(userId)).length > 0;
       const remaining = await syncQueue(userId, token);
       setQueue(remaining);
       await refreshFromServer();
       setServerReachable(true);
-      if (remaining.length === 0) {
-        setNotice('Your reports are up to date.');
-      } else {
+      if (notify && hadQueuedReports && remaining.length === 0) {
+        setNotice('Your saved reports have synced with RSSI.');
+      } else if (notify && remaining.length > 0) {
         setNotice(`${remaining.length} report${remaining.length === 1 ? '' : 's'} waiting to sync. RSSI will retry automatically.`);
       }
     } catch (error) {
-      if (error instanceof Error && error.message) {
+      if (notify && error instanceof Error && error.message) {
         setNotice(error.message);
       }
     } finally {
@@ -233,31 +253,39 @@ function RSSIApp() {
   useEffect(() => {
     if (!token || !userId) {
       setHasInternet(false);
+      setNetworkConnected(false);
       setServerReachable(false);
       return undefined;
     }
     let active = true;
     const recover = async (state?: NetInfoState) => {
       const net = state || (await NetInfo.fetch());
-      const connected = net.isConnected === true && net.isInternetReachable !== false;
+      // A phone can still reach a nearby SRA server over Wi-Fi when that Wi-Fi
+      // has no internet route. Server requests below determine actual reachability.
+      const connected = net.isConnected === true;
+      const internetAvailable = connected && net.isInternetReachable !== false;
       if (!active) {
         return;
       }
-      setHasInternet(connected);
+      setNetworkConnected(connected);
+      setHasInternet(internetAvailable);
       if (connected) {
         await syncAndRefresh();
         if (activeTab.current === 'community') {
           await loadCommunity();
         }
       } else {
+        setNetworkConnected(false);
+        setHasInternet(false);
         setServerReachable(false);
         setCommunity([]);
       }
     };
     const unsubscribe = NetInfo.addEventListener(state => {
-      if (state.isConnected === true && state.isInternetReachable !== false) {
+      if (state.isConnected === true) {
         void recover(state);
       } else {
+        setNetworkConnected(false);
         setHasInternet(false);
         setServerReachable(false);
         setCommunity([]);
@@ -279,15 +307,15 @@ function RSSIApp() {
   }, [token, userId, syncAndRefresh, loadCommunity]);
 
   useEffect(() => {
-    if (tab === 'community' && token && hasInternet) {
+    if (tab === 'community' && token && networkConnected) {
       void loadCommunity();
-    } else if (tab === 'community' && !hasInternet) {
+    } else if (tab === 'community' && !networkConnected) {
       setCommunity([]);
     }
-  }, [tab, token, hasInternet, loadCommunity]);
+  }, [tab, token, networkConnected, loadCommunity]);
 
   const signOut = useCallback(async () => {
-    if (token && hasInternet) {
+    if (token && networkConnected) {
       await apiRequest('/auth/logout', token, {method: 'POST'}).catch(() => undefined);
     }
     await Promise.all([removeSecure('session-token'), removeSecure('session-user')]);
@@ -299,7 +327,7 @@ function RSSIApp() {
     setCommunity([]);
     setTab('home');
     setNotice('');
-  }, [token, hasInternet]);
+  }, [token, networkConnected]);
 
   if (!appReady) {
     return <LoadingScreen />;
@@ -309,6 +337,8 @@ function RSSIApp() {
     return (
       <AuthScreen
         onAuthenticated={applyAuth}
+        serverUrl={apiBaseUrl}
+        onServerConfigured={saveApiBaseUrl}
         onMessage={setNotice}
         initialMessage={notice}
       />
@@ -328,6 +358,7 @@ function RSSIApp() {
         setTab(value);
       }}
       hasInternet={hasInternet}
+      networkConnected={networkConnected}
       serverReachable={serverReachable}
       busy={busy}
       notice={notice}
@@ -339,14 +370,28 @@ function RSSIApp() {
         await writeQueue(user.id, next);
         setTab('history');
         setNotice('Saved on this device. RSSI will submit it automatically when the server is reachable.');
-        if (hasInternet) {
-          await syncAndRefresh();
+        if (networkConnected) {
+          await syncAndRefresh(true);
         }
       }}
-      onSync={syncAndRefresh}
+      onSync={() => syncAndRefresh(true)}
       onRefresh={refreshFromServer}
       onLoadCommunity={loadCommunity}
       onSignOut={signOut}
+      onChangeServer={async () => {
+        if (token && networkConnected) {
+          await apiRequest('/auth/logout', token, {method: 'POST'}).catch(() => undefined);
+        }
+        await Promise.all([removeSecure('session-token'), removeSecure('session-user')]);
+        setToken(null);
+        setUser(null);
+        setProperties([]);
+        setReports([]);
+        setQueue([]);
+        setCommunity([]);
+        setTab('home');
+        setNotice('Enter the new RSSI server address and sign in. Any saved offline reports remain on this device.');
+      }}
       onCommunityConfirmed={async id => {
         try {
           const result = await apiRequest<{confirmation_count: number; confirmed_by_me: boolean}>(
@@ -369,16 +414,21 @@ function RSSIApp() {
 
 function AuthScreen({
   onAuthenticated,
+  serverUrl,
+  onServerConfigured,
   onMessage,
   initialMessage,
 }: {
   onAuthenticated: (auth: AuthResponse) => Promise<void>;
+  serverUrl: string;
+  onServerConfigured: (url: string) => Promise<void>;
   onMessage: (message: string) => void;
   initialMessage: string;
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [serverAddress, setServerAddress] = useState(serverUrl);
   const [fields, setFields] = useState<RegisterFields>({
     name: '', email: '', password: '', propertyName: '', province: 'Negros Oriental',
     municipality: '', barangay: '', sizeHectares: '',
@@ -430,6 +480,7 @@ function AuthScreen({
     setError('');
     onMessage('');
     try {
+      await onServerConfigured(serverAddress);
       const response = isRegistering
         ? await apiRequest<AuthResponse>('/auth/register', undefined, {
           method: 'POST',
@@ -522,6 +573,8 @@ function AuthScreen({
                 <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry />
               </>
             )}
+            <Field label="RSSI server address" value={serverAddress} onChangeText={setServerAddress} placeholder="https://your-rssi-server.example" keyboardType="url" autoCapitalize="none" />
+            <Text style={styles.helperText}>Use the SRA network address on Wi-Fi or your organization’s HTTPS address. This setting is saved on this device.</Text>
             <Button label={busy ? 'Connecting…' : isRegistering ? 'Create farmer account' : 'Sign in'} onPress={submit} disabled={busy} loading={busy} />
             <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); setError('');}}>
               <Text style={styles.linkText}>{isRegistering ? 'Already registered? Sign in' : 'New to RSSI? Register your farm'}</Text>
@@ -546,6 +599,7 @@ function FarmerShell(props: {
   tab: Tab;
   setTab: (tab: Tab) => void;
   hasInternet: boolean;
+  networkConnected: boolean;
   serverReachable: boolean;
   busy: boolean;
   notice: string;
@@ -556,11 +610,12 @@ function FarmerShell(props: {
   onRefresh: () => Promise<void>;
   onLoadCommunity: () => Promise<void>;
   onSignOut: () => Promise<void>;
+  onChangeServer: () => Promise<void>;
   onCommunityConfirmed: (id: number) => Promise<void>;
 }) {
   const {
     user, properties, reports, queue, community, tab, setTab,
-    hasInternet, serverReachable, busy, notice, clearNotice, token,
+    hasInternet, networkConnected, serverReachable, busy, notice, clearNotice, token,
   } = props;
   const [farmForm, setFarmForm] = useState(false);
   const [farmBusy, setFarmBusy] = useState(false);
@@ -593,7 +648,7 @@ function FarmerShell(props: {
   const selectedProperty = properties.find(property => property.id === selectedFarm) || properties[0];
   const totalReports = reports.length;
   const localTotal = totalReports + queue.filter(item => !item.serverReportId).length;
-  const dashboardStatus = hasInternet ? (serverReachable ? 'Connected' : 'Server checking') : 'Offline mode';
+  const dashboardStatus = networkConnected ? (serverReachable ? 'Connected' : 'Server checking') : 'Offline mode';
 
   const saveFarm = async () => {
     if (!farmValues.name.trim() || !farmValues.municipality.trim()) {
@@ -738,10 +793,10 @@ function FarmerShell(props: {
             void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : 'Could not read location.')).finally(() => setFarmLocationBusy(false));
           }} />
           {farmCoordinates ? <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text> : null}
-          {!hasInternet ? <Text style={styles.helperText}>Adding a farm needs a connection. You can still save reports about farms already on your account.</Text> : null}
+          {!networkConnected ? <Text style={styles.helperText}>Adding a farm needs a connection. You can still save reports about farms already on your account.</Text> : null}
           <View style={styles.buttonRow}>
             <Button label="Cancel" kind="light" onPress={() => {setFarmForm(false); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
-            <Button label="Save farm" onPress={saveFarm} disabled={!hasInternet || farmBusy} loading={farmBusy} />
+            <Button label="Save farm" onPress={saveFarm} disabled={!networkConnected || farmBusy} loading={farmBusy} />
           </View>
         </>
       ) : (
@@ -773,18 +828,18 @@ function FarmerShell(props: {
             </View>
             <Card style={styles.statusCard}>
               <View style={styles.statusHead}>
-                <View style={[styles.statusDot, {backgroundColor: hasInternet && serverReachable ? C.green : C.amber}]} />
+                <View style={[styles.statusDot, {backgroundColor: networkConnected && serverReachable ? C.green : C.amber}]} />
                 <Text style={styles.statusTitle}>{dashboardStatus}</Text>
                 {busy ? <ActivityIndicator size="small" color={C.blue} /> : null}
               </View>
               <Text style={styles.cardSub}>
-                {hasInternet && serverReachable
+                {networkConnected && serverReachable
                   ? 'Your farm and report details are up to date.'
-                  : hasInternet
-                    ? 'The network is available. Checking your RSSI server…'
+                  : networkConnected
+                    ? 'Your network is available. Checking your RSSI server…'
                     : 'Saved farm details and your report drafts stay available offline.'}
               </Text>
-              {queue.length > 0 ? <Button label={busy ? 'Syncing reports…' : `Sync ${queue.length} waiting report${queue.length === 1 ? '' : 's'}`} onPress={props.onSync} disabled={!hasInternet || busy} loading={busy} kind="light" /> : null}
+              {queue.length > 0 ? <Button label={busy ? 'Syncing reports…' : `Sync ${queue.length} waiting report${queue.length === 1 ? '' : 's'}`} onPress={props.onSync} disabled={!networkConnected || busy} loading={busy} kind="light" /> : null}
             </Card>
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>Quick actions</Text>
@@ -930,18 +985,18 @@ function FarmerShell(props: {
       case 'history':
         return (
           <>
-            <PageIntro eyebrow="YOUR SUBMISSIONS" title="My reports" subtitle="Review your submitted observations and sync status." action={<TouchableOpacity onPress={() => void props.onRefresh()} disabled={!hasInternet}><Text style={[styles.linkText, !hasInternet && styles.disabledText]}>Refresh</Text></TouchableOpacity>} />
+            <PageIntro eyebrow="YOUR SUBMISSIONS" title="My reports" subtitle="Review your submitted observations and sync status." action={<TouchableOpacity onPress={() => void props.onRefresh()} disabled={!networkConnected}><Text style={[styles.linkText, !networkConnected && styles.disabledText]}>Refresh</Text></TouchableOpacity>} />
             {queue.length > 0 ? (
               <Card>
                 <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Waiting to sync</Text><Pill text={String(queue.length)} tone="amber" /></View>
                 <Text style={styles.cardSub}>Reports are stored on this device and send automatically when the server is reachable.</Text>
                 {queue.map(item => <QueuedReportRow key={item.clientSubmissionId} item={item} />)}
-                <Button label={busy ? 'Syncing…' : 'Try sync now'} onPress={props.onSync} disabled={!hasInternet || busy} loading={busy} kind="light" />
+                <Button label={busy ? 'Syncing…' : 'Try sync now'} onPress={props.onSync} disabled={!networkConnected || busy} loading={busy} kind="light" />
               </Card>
             ) : null}
             <Card>
               <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Submitted reports</Text><Pill text={String(reports.length)} tone="blue" /></View>
-              {!hasInternet ? <Notice text="Showing your last saved records. New report updates load when you reconnect." tone="info" /> : null}
+              {!networkConnected ? <Notice text="Showing your last saved records. New report updates load when you reconnect." tone="info" /> : null}
               {reports.length === 0 ? (
                 <EmptyState icon="▤" title="No submitted reports" description="Reports you submit will appear here after they sync." />
               ) : reports.map(report => <ReportRow key={report.id} report={report} />)}
@@ -953,7 +1008,7 @@ function FarmerShell(props: {
         return (
           <>
             <PageIntro eyebrow="FARMER COMMUNITY" title="Community updates" subtitle="Opt-in, anonymized observations shared by farmers in the Negros provinces." />
-            {!hasInternet ? (
+            {!networkConnected ? (
               <Card><EmptyState icon="⌁" title="Updates need internet" description="Community posts and confirmations are online-only. Your own farms and saved reports still work offline." /></Card>
             ) : (
               <Card>
@@ -962,7 +1017,7 @@ function FarmerShell(props: {
                 {community.length === 0 ? (
                   <EmptyState icon="◎" title="No shared updates yet" description="When a farmer opts in to share an observation, it will appear here." />
                 ) : community.map(item => (
-                  <CommunityCard key={item.id} item={item} onConfirm={() => void props.onCommunityConfirmed(item.id)} disabled={!hasInternet || item.confirmed_by_me} />
+                  <CommunityCard key={item.id} item={item} onConfirm={() => void props.onCommunityConfirmed(item.id)} disabled={!networkConnected || item.confirmed_by_me} />
                 ))}
               </Card>
             )}
@@ -986,6 +1041,7 @@ function FarmerShell(props: {
               <Text style={[styles.bodyText, {marginTop: 12}]}>Community updates are not cached and cannot be opened offline.</Text>
             </Card>
             {notice ? <Notice text={notice} tone="info" /> : null}
+            <Button label="Change server address" kind="light" onPress={() => props.onChangeServer().catch(() => undefined)} />
             <Button label="Sign out" kind="danger" onPress={() => void props.onSignOut()} />
           </>
         );
@@ -999,15 +1055,15 @@ function FarmerShell(props: {
       <View style={styles.appHeader}>
         <View style={styles.headerBrand}><BrandMark /><View><Text style={styles.headerBrandName}>RSSI</Text><Text style={styles.headerBrandSub}>Farmer app</Text></View></View>
         <TouchableOpacity style={styles.headerAccount} onPress={() => setTab('profile')}>
-          <View style={[styles.headerOnlineDot, {backgroundColor: hasInternet && serverReachable ? C.green : C.amber}]} />
+          <View style={[styles.headerOnlineDot, {backgroundColor: networkConnected && serverReachable ? C.green : C.amber}]} />
           <Text style={styles.headerAccountText} numberOfLines={1}>{user.name.split(' ')[0]}</Text>
           <Text style={styles.headerAvatar}>{user.name.trim().charAt(0).toUpperCase()}</Text>
         </TouchableOpacity>
       </View>
-      {!hasInternet ? (
+      {!networkConnected ? (
         <View style={styles.offlineBanner}><Text style={styles.offlineIcon}>⌁</Text><Text style={styles.offlineBannerText}>Offline mode · saved reports will sync automatically</Text></View>
-      ) : hasInternet && !serverReachable ? (
-        <View style={[styles.offlineBanner, styles.serverBanner]}><Text style={styles.offlineIcon}>↻</Text><Text style={styles.offlineBannerText}>Internet available · reconnecting to RSSI server</Text></View>
+      ) : networkConnected && !serverReachable ? (
+        <View style={[styles.offlineBanner, styles.serverBanner]}><Text style={styles.offlineIcon}>↻</Text><Text style={styles.offlineBannerText}>Network available · reconnecting to RSSI server</Text></View>
       ) : null}
       {notice ? (
         <TouchableOpacity style={styles.noticeWrap} onPress={clearNotice}><Notice text={notice} tone="info" /><Text style={styles.dismissText}>Tap to dismiss</Text></TouchableOpacity>
@@ -1034,7 +1090,7 @@ function LoadingScreen() {
 }
 
 function BrandMark({large = false}: {large?: boolean}) {
-  return <View style={[styles.brandMark, large && styles.brandMarkLarge]}><Text style={styles.brandMarkText}>R</Text><View style={styles.brandLeaf} /></View>;
+  return <Image source={require('./assets/rssi-logo.png')} resizeMode="contain" style={[styles.brandMark, large && styles.brandMarkLarge]} accessibilityLabel="RSSI logo" />;
 }
 
 function PageIntro({eyebrow, title, subtitle, action}: {eyebrow: string; title: string; subtitle: string; action?: React.ReactNode}) {
@@ -1054,7 +1110,7 @@ function Field(props: {
   onChangeText: (value: string) => void;
   placeholder?: string;
   secureTextEntry?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'decimal-pad' | 'numeric';
+  keyboardType?: 'default' | 'email-address' | 'decimal-pad' | 'numeric' | 'url';
   multiline?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 }) {

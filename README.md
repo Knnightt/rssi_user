@@ -2,6 +2,16 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 # Getting Started
 
+## Connect to the RSSI API
+
+The farmer app uses the same versioned Symfony API as the web dashboard. Enter the API server origin on the sign-in or registration screen; the origin is saved in the device's protected storage. The current development default is `http://192.168.15.5:8000`.
+
+- Android debug builds allow HTTP for the local SRA network. Release builds require HTTPS.
+- iOS includes an HTTP exception for the development subnet `192.168.15.0/24`. For another private subnet, use the organization's HTTPS URL or update the scoped subnet exception in `ios/RSSI_User/Info.plist` before building.
+- Keep `API_PREFIX` at `/api/v1`; enter only the server origin, without a path.
+
+When a report is submitted without a connection, its form data and copied photos stay in the device's protected/local storage. The app retries submission when network connectivity returns and refreshes farm and report data automatically. Community updates and confirmations are loaded from the server and are unavailable while disconnected.
+
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
 ## Step 1: Start Metro
