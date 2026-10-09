@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Switch,
@@ -15,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import NetInfo, {NetInfoState} from '@react-native-community/netinfo';
+import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import {WebView} from 'react-native-webview';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
@@ -60,7 +62,7 @@ const C = {
   redSoft: '#FFF0F0',
 };
 
-type Tab = 'home' | 'farms' | 'map' | 'report' | 'history' | 'community' | 'profile';
+type Tab = 'home' | 'farms' | 'map' | 'report' | 'history' | 'community' | 'profile' | 'support';
 type RegisterFields = {
   name: string;
   email: string;
@@ -171,6 +173,22 @@ function RSSIApp() {
     await writeSecure('api-base-url', configured);
     setApiBaseUrl(configured);
   }, []);
+
+  const updateFarmerName = useCallback(async (name: string) => {
+    if (!token || !user) {
+      throw new Error('Sign in again before editing your profile.');
+    }
+    const response = await apiRequest<{user: Farmer}>('/me', token, {
+      method: 'PATCH',
+      body: JSON.stringify({name}),
+    });
+    setUser(response.user);
+    await writeSecureJson('session-user', response.user);
+    const cache = await readCache(user.id);
+    if (cache) {
+      await writeCache(user.id, {...cache, user: response.user, refreshedAt: new Date().toISOString()});
+    }
+  }, [token, user]);
 
   const refreshFromServer = useCallback(async () => {
     if (!token || !userId) {
@@ -363,6 +381,7 @@ function RSSIApp() {
       busy={busy}
       notice={notice}
       clearNotice={() => setNotice('')}
+      onMessage={setNotice}
       token={token}
       onReportQueued={async item => {
         const next = [...await readQueue(user.id), item];
@@ -392,6 +411,7 @@ function RSSIApp() {
         setTab('home');
         setNotice('Enter the new RSSI server address and sign in. Any saved offline reports remain on this device.');
       }}
+      onUpdateFarmerName={updateFarmerName}
       onCommunityConfirmed={async id => {
         try {
           const result = await apiRequest<{confirmation_count: number; confirmed_by_me: boolean}>(
@@ -604,6 +624,7 @@ function FarmerShell(props: {
   busy: boolean;
   notice: string;
   clearNotice: () => void;
+  onMessage: (message: string) => void;
   token: string;
   onReportQueued: (item: QueuedReport) => Promise<void>;
   onSync: () => Promise<void>;
@@ -611,11 +632,12 @@ function FarmerShell(props: {
   onLoadCommunity: () => Promise<void>;
   onSignOut: () => Promise<void>;
   onChangeServer: () => Promise<void>;
+  onUpdateFarmerName: (name: string) => Promise<void>;
   onCommunityConfirmed: (id: number) => Promise<void>;
 }) {
   const {
     user, properties, reports, queue, community, tab, setTab,
-    hasInternet, networkConnected, serverReachable, busy, notice, clearNotice, token,
+    hasInternet, networkConnected, serverReachable, busy, notice, clearNotice, onMessage, token,
   } = props;
   const [farmForm, setFarmForm] = useState(false);
   const [farmBusy, setFarmBusy] = useState(false);
@@ -636,6 +658,12 @@ function FarmerShell(props: {
   const [photos, setPhotos] = useState<QueuedPhoto[]>([]);
   const [reportError, setReportError] = useState('');
   const [reportBusy, setReportBusy] = useState(false);
+  const [reportSearch, setReportSearch] = useState('');
+  const [selectedReport, setSelectedReport] = useState<FieldReport | null>(null);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileName, setProfileName] = useState(user.name);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMessage, setProfileMessage] = useState('');
 
   useEffect(() => {
     if (selectedFarm === null && properties.length > 0) {
@@ -645,10 +673,67 @@ function FarmerShell(props: {
     }
   }, [properties, selectedFarm]);
 
+  useEffect(() => {
+    setProfileName(user.name);
+  }, [user.name]);
+
   const selectedProperty = properties.find(property => property.id === selectedFarm) || properties[0];
   const totalReports = reports.length;
   const localTotal = totalReports + queue.filter(item => !item.serverReportId).length;
   const dashboardStatus = networkConnected ? (serverReachable ? 'Connected' : 'Server checking') : 'Offline mode';
+  const filteredReports = reports.filter(report => {
+    const query = reportSearch.trim().toLocaleLowerCase();
+    return !query || [report.code, report.property_name, report.province, report.municipality, report.observations, report.verification_status]
+      .some(value => value.toLocaleLowerCase().includes(query));
+  });
+  const coverageByArea = Object.entries(reports.reduce<Record<string, number>>((counts, report) => {
+    const areaName = `${report.municipality}, ${report.province}`;
+    counts[areaName] = (counts[areaName] || 0) + 1;
+    return counts;
+  }, {})).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+  const exportReports = async () => {
+    if (reports.length === 0) {
+      onMessage('There are no submitted reports to export yet.');
+      return;
+    }
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = [
+      ['Report code', 'Farm', 'Province', 'Municipality', 'Observed date', 'Submitted date', 'Observation', 'Damage', 'Farmer severity', 'Affected area (ha)', 'SRA status', 'SRA severity'],
+      ...reports.map(report => [report.code, report.property_name, report.province, report.municipality, report.observed_at, report.submitted_at, report.observations, report.damage_description, report.farmer_severity, report.affected_area_hectares, report.verification_status, report.sra_severity || '']),
+    ];
+    const csv = `\uFEFF${rows.map(row => row.map(csvCell).join(',')).join('\r\n')}`;
+    const filePath = `${RNFS.DocumentDirectoryPath}/rssi-reports-${Date.now()}.csv`;
+    try {
+      await RNFS.writeFile(filePath, csv, 'utf8');
+      if (Platform.OS === 'ios') {
+        await Share.share({title: 'RSSI report export', url: `file://${filePath}`});
+      } else {
+        await Share.share({title: 'RSSI report export (CSV)', message: csv}, {dialogTitle: 'Export reports'});
+      }
+    } catch (error) {
+      onMessage(error instanceof Error ? `Could not export reports: ${error.message}` : 'Could not export reports.');
+    }
+  };
+
+  const saveProfileName = async () => {
+    const trimmed = profileName.trim();
+    if (!trimmed) {
+      setProfileMessage('Enter your name before saving.');
+      return;
+    }
+    setProfileBusy(true);
+    setProfileMessage('');
+    try {
+      await props.onUpdateFarmerName(trimmed);
+      setProfileEditing(false);
+      setProfileMessage('Your profile was updated.');
+    } catch (error) {
+      setProfileMessage(error instanceof Error ? error.message : 'Could not update your profile.');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
 
   const saveFarm = async () => {
     if (!farmValues.name.trim() || !farmValues.municipality.trim()) {
@@ -860,7 +945,7 @@ function FarmerShell(props: {
               ) : (
                 <>
                   {queue.slice(0, 2).map(item => <QueuedReportRow key={item.clientSubmissionId} item={item} />)}
-                  {reports.slice(0, 3).map(report => <ReportRow key={report.id} report={report} />)}
+                  {reports.slice(0, 3).map(report => <ReportRow key={report.id} report={report} onPress={() => {setSelectedReport(report); setTab('history');}} />)}
                 </>
               )}
             </Card>
@@ -906,6 +991,13 @@ function FarmerShell(props: {
             {properties.length === 0 ? (
               <Card><EmptyState icon="⌖" title="No farm records" description="Add a farm to see it in your account." /></Card>
             ) : properties.map(property => <FarmRow key={property.id} property={property} onPress={() => setTab('farms')} selected={false} />)}
+            <Card>
+              <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Your report coverage</Text><Pill text={`${reports.length} reports`} tone="blue" /></View>
+              <Text style={styles.cardSub}>Counts are based on reports in your account. They do not represent all farmers or confirmed SRA findings.</Text>
+              {coverageByArea.length === 0 ? <EmptyState icon="⌖" title="No report areas yet" description="Municipalities from your submitted reports will appear here." /> : coverageByArea.map(([areaName, count]) => (
+                <View key={areaName} style={styles.coverageRow}><Text style={styles.coverageArea}>{areaName}</Text><Pill text={String(count)} tone="blue" /></View>
+              ))}
+            </Card>
             <Text style={styles.mapAttribution}>Map data © OpenStreetMap contributors</Text>
             <PrivacyNote text="Other farmers’ exact locations are not shown. Reports are observations pending SRA review." />
           </>
@@ -983,9 +1075,29 @@ function FarmerShell(props: {
           </>
         );
       case 'history':
+        if (selectedReport) {
+          return (
+            <>
+              <PageIntro eyebrow="REPORT DETAILS" title={selectedReport.code} subtitle={`${selectedReport.property_name} · ${selectedReport.municipality}, ${selectedReport.province}`} action={<TouchableOpacity onPress={() => setSelectedReport(null)}><Text style={styles.linkText}>Back to reports</Text></TouchableOpacity>} />
+              <Card>
+                <View style={styles.detailStatus}><Text style={styles.cardTitle}>SRA status</Text><Pill text={selectedReport.verification_status} tone={selectedReport.verification_status === 'Confirmed' ? 'green' : selectedReport.verification_status === 'No detection' ? 'gray' : 'amber'} /></View>
+                <InfoRow label="Observed" value={selectedReport.observed_at} />
+                <InfoRow label="Submitted" value={selectedReport.submitted_at} />
+                <InfoRow label="Farmer severity" value={selectedReport.farmer_severity} />
+                <InfoRow label="SRA severity" value={selectedReport.sra_severity || 'Not assessed'} />
+                <InfoRow label="Affected area" value={`${selectedReport.affected_area_hectares || '0'} ha`} />
+                <Text style={styles.inputLabel}>Observation</Text><Text style={styles.bodyText}>{selectedReport.observations}</Text>
+                <Text style={[styles.inputLabel, styles.detailLabel]}>Damage description</Text><Text style={styles.bodyText}>{selectedReport.damage_description}</Text>
+              </Card>
+              {selectedReport.photos.length > 0 ? <Card><Text style={styles.cardTitle}>Attached photos</Text>{selectedReport.photos.map(photo => <Text key={photo.id} style={styles.photoName}>{photo.name}</Text>)}</Card> : null}
+              <PrivacyNote text="A farmer report is an observation for SRA review. The farmer's estimate is not an SRA diagnosis." />
+            </>
+          );
+        }
         return (
           <>
-            <PageIntro eyebrow="YOUR SUBMISSIONS" title="My reports" subtitle="Review your submitted observations and sync status." action={<TouchableOpacity onPress={() => void props.onRefresh()} disabled={!networkConnected}><Text style={[styles.linkText, !networkConnected && styles.disabledText]}>Refresh</Text></TouchableOpacity>} />
+            <PageIntro eyebrow="YOUR SUBMISSIONS" title="My reports" subtitle="Search, review, and export your submitted observations." action={<View style={styles.historyActions}><TouchableOpacity onPress={() => void props.onRefresh()} disabled={!networkConnected}><Text style={[styles.linkText, !networkConnected && styles.disabledText]}>Refresh</Text></TouchableOpacity><TouchableOpacity onPress={() => void exportReports()}><Text style={styles.linkText}>Export CSV</Text></TouchableOpacity></View>} />
+            <TextInput value={reportSearch} onChangeText={setReportSearch} placeholder="Search reports, farms, or municipalities" placeholderTextColor="#98A5B8" style={styles.input} accessibilityLabel="Search reports" returnKeyType="search" />
             {queue.length > 0 ? (
               <Card>
                 <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Waiting to sync</Text><Pill text={String(queue.length)} tone="amber" /></View>
@@ -999,7 +1111,7 @@ function FarmerShell(props: {
               {!networkConnected ? <Notice text="Showing your last saved records. New report updates load when you reconnect." tone="info" /> : null}
               {reports.length === 0 ? (
                 <EmptyState icon="▤" title="No submitted reports" description="Reports you submit will appear here after they sync." />
-              ) : reports.map(report => <ReportRow key={report.id} report={report} />)}
+              ) : filteredReports.length === 0 ? <EmptyState icon="⌕" title="No matching reports" description="Try a different report code, farm, or municipality." /> : filteredReports.map(report => <ReportRow key={report.id} report={report} onPress={() => setSelectedReport(report)} />)}
             </Card>
             <PrivacyNote text="Report status and severity are separate. A farmer’s estimate is not an SRA diagnosis." />
           </>
@@ -1030,6 +1142,11 @@ function FarmerShell(props: {
             <PageIntro eyebrow="ACCOUNT & PRIVACY" title="My account" subtitle="Your farmer profile and local sync settings." />
             <Card>
               <View style={styles.profileHeader}><Avatar name={user.name} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
+              {profileEditing ? <>
+                <Field label="Full name" value={profileName} onChangeText={setProfileName} placeholder="Your name" autoCapitalize="words" />
+                <View style={styles.buttonRow}><Button label="Cancel" kind="light" onPress={() => {setProfileEditing(false); setProfileName(user.name); setProfileMessage('');}} /><Button label={profileBusy ? 'Saving…' : 'Save changes'} onPress={() => void saveProfileName()} disabled={profileBusy} loading={profileBusy} /></View>
+              </> : <Button label="Edit profile" kind="light" onPress={() => {setProfileMessage(''); setProfileEditing(true);}} />}
+              {profileMessage ? <Notice text={profileMessage} tone={profileMessage.includes('updated') ? 'success' : 'error'} /> : null}
               <InfoRow label="Farmer reference" value={user.reference} />
               <InfoRow label="Account status" value={user.status} />
               <InfoRow label="API server" value={getApiBaseUrl()} compact />
@@ -1042,7 +1159,19 @@ function FarmerShell(props: {
             </Card>
             {notice ? <Notice text={notice} tone="info" /> : null}
             <Button label="Change server address" kind="light" onPress={() => props.onChangeServer().catch(() => undefined)} />
+            <Button label="Help & support" kind="light" onPress={() => setTab('support')} />
             <Button label="Sign out" kind="danger" onPress={() => void props.onSignOut()} />
+          </>
+        );
+      case 'support':
+        return (
+          <>
+            <PageIntro eyebrow="HELP CENTER" title="Help & support" subtitle="Quick help for common RSSI farmer app tasks." action={<TouchableOpacity onPress={() => setTab('profile')}><Text style={styles.linkText}>My account</Text></TouchableOpacity>} />
+            <Card><Text style={styles.cardTitle}>Can't sign in?</Text><Text style={styles.bodyText}>Check the email and password you registered with. Confirm the RSSI server address on the sign-in screen matches your organization's server, then try again while connected to its network.</Text></Card>
+            <Card><Text style={styles.cardTitle}>Server unavailable or offline?</Text><Text style={styles.bodyText}>Saved farms and reports remain on this device. Reports waiting to sync are submitted automatically after the server is reachable; you can also retry from My reports.</Text></Card>
+            <Card><Text style={styles.cardTitle}>Location and privacy</Text><Text style={styles.bodyText}>A precise farm pin is optional and saved only after you grant location permission. Community posts are shared only when you opt in, and never include your name, farm name, exact location, or photos.</Text></Card>
+            <Card><Text style={styles.cardTitle}>Need help from SRA?</Text><Text style={styles.bodyText}>Contact your SRA administrator through your organization's established support channel and include your farmer reference: {user.reference}.</Text></Card>
+            <PrivacyNote text="Community confirmations reflect farmer agreement. Only authorized SRA staff can verify an observation." />
           </>
         );
       default:
@@ -1201,13 +1330,13 @@ function FarmRow({property, onPress, selected}: {property: FarmProperty; onPress
   </TouchableOpacity>;
 }
 
-function ReportRow({report}: {report: FieldReport}) {
+function ReportRow({report, onPress}: {report: FieldReport; onPress?: () => void}) {
   const tone = report.verification_status === 'Confirmed' ? 'green' : report.verification_status === 'No detection' ? 'gray' : 'amber';
-  return <View style={styles.reportRow}>
+  return <TouchableOpacity style={styles.reportRow} onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={onPress ? `View report ${report.code}` : undefined}>
     <View style={styles.reportRowIcon}><Text style={styles.reportRowIconText}>▤</Text></View>
     <View style={styles.flex}><Text style={styles.reportRowName}>{report.property_name}</Text><Text style={styles.reportRowMeta}>{report.code} · {report.observed_at}</Text><Text style={styles.reportRowSub}>{report.municipality}, {report.province}</Text></View>
     <Pill text={report.verification_status} tone={tone} />
-  </View>;
+  </TouchableOpacity>;
 }
 
 function QueuedReportRow({item}: {item: QueuedReport}) {
@@ -1292,6 +1421,7 @@ const styles = StyleSheet.create({
   bottomSpacer: {height: 6},
   pageIntro: {marginBottom: 15},
   pageIntroRow: {flexDirection: 'row', alignItems: 'center', gap: 8},
+  historyActions: {alignItems: 'flex-end', gap: 9, paddingVertical: 3},
   pageEyebrow: {fontSize: 10, letterSpacing: 0.9, color: C.green, fontWeight: '800', marginBottom: 4},
   pageTitle: {fontSize: 26, lineHeight: 32, fontWeight: '800', color: C.ink},
   pageSub: {color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 5},
@@ -1387,12 +1517,16 @@ const styles = StyleSheet.create({
   removeText: {color: C.red, fontSize: 11, fontWeight: '700'},
   formFooter: {textAlign: 'center', fontSize: 10, color: C.muted, marginTop: 8},
   mapCard: {padding: 0, overflow: 'hidden'},
+  coverageRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderTopColor: '#EDF0F5', borderTopWidth: 1},
+  coverageArea: {fontSize: 12, color: C.ink, fontWeight: '700', flex: 1},
   mapWebView: {height: 360, backgroundColor: '#eaf0ea'},
   mapOffline: {height: 240, alignItems: 'center', justifyContent: 'center', padding: 25, backgroundColor: '#EAF0EA'},
   mapOfflineIcon: {fontSize: 35, color: C.green, marginBottom: 8},
   mapAttribution: {textAlign: 'right', fontSize: 10, color: C.muted, marginTop: -5, marginBottom: 7},
   coordinatesText: {fontSize: 10, color: C.muted, marginTop: 6},
   reportRow: {flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomColor: '#EDF0F5', borderBottomWidth: 1},
+  detailStatus: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 5},
+  detailLabel: {marginTop: 16},
   reportRowIcon: {width: 34, height: 34, borderRadius: 11, backgroundColor: C.paleBlue, alignItems: 'center', justifyContent: 'center'},
   reportRowIconText: {fontSize: 16, color: C.blue, fontWeight: '800'},
   reportRowName: {fontSize: 12, fontWeight: '800', color: C.ink},
