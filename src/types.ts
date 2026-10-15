@@ -8,5 +8,6 @@ export type RegisterFields = {
   province: string;
   municipality: string;
   barangay: string;
+  address: string;
   sizeHectares: string;
 };

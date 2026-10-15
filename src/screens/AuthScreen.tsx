@@ -1,33 +1,31 @@
 import React, {useState} from 'react';
-import {KeyboardAvoidingView, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
+import {KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {WebView} from 'react-native-webview';
 import {apiRequest, AuthResponse} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
+import {LocationPicker} from '../components/LocationPicker';
 import {styles} from '../theme';
 import {RegisterFields} from '../types';
-import {BrandMark, Button, Choice, Field, LoadingScreen, Notice, Pill, ToggleLine} from '../components/UI';
+import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ToggleLine} from '../components/UI';
+import {LocalizedText as Text} from '../i18n';
+import {useTheme} from '../theme';
 
 export default function AuthScreen({
   onAuthenticated,
-  serverUrl,
-  onServerConfigured,
   onMessage,
   initialMessage,
 }: {
   onAuthenticated: (auth: AuthResponse) => Promise<void>;
-  serverUrl: string;
-  onServerConfigured: (url: string) => Promise<void>;
   onMessage: (message: string) => void;
   initialMessage: string;
 }) {
+  useTheme();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [serverAddress, setServerAddress] = useState(serverUrl);
   const [fields, setFields] = useState<RegisterFields>({
     name: '', email: '', password: '', propertyName: '', province: 'Negros Oriental',
-    municipality: '', barangay: '', sizeHectares: '',
+    municipality: '', barangay: '', address: '', sizeHectares: '',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialMessage);
@@ -77,7 +75,6 @@ export default function AuthScreen({
     setError('');
     onMessage('');
     try {
-      await onServerConfigured(serverAddress);
       const response = isRegistering
         ? await apiRequest<AuthResponse>('/auth/register', undefined, {
           method: 'POST',
@@ -89,6 +86,7 @@ export default function AuthScreen({
             province: fields.province,
             municipality: fields.municipality,
             barangay: fields.barangay || null,
+            address: fields.address.trim() || null,
             sizeHectares: fields.sizeHectares ? Number(fields.sizeHectares) : null,
             latitude: coordinates?.latitude ?? null,
             longitude: coordinates?.longitude ?? null,
@@ -119,6 +117,7 @@ export default function AuthScreen({
             </View>
             <Pill text="SRA" tone="blue" />
           </View>
+          <View style={styles.authCard}><LanguageSwitcher /></View>
           <View style={styles.authCard}>
             <View style={styles.eyebrow}><Text style={styles.eyebrowText}>FARMER ACCOUNT</Text></View>
             <Text style={styles.authTitle}>{isRegistering ? 'Create Farmer Account' : 'Welcome back'}</Text>
@@ -147,6 +146,7 @@ export default function AuthScreen({
                   <View style={styles.fieldGrow}><Field label="Barangay (optional)" value={fields.barangay} onChangeText={value => setField('barangay', value)} placeholder="Select barangay" autoCapitalize="words" /></View>
                   <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" /></View>
                 </View>
+                <Field label="Complete farm address" value={fields.address} onChangeText={value => setField('address', value)} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
                 <Text style={styles.helperText}>Required to size your farm circle on the map. An exact GPS pin is optional and needs your consent.</Text>
                 <Text style={styles.inputLabel}>Pinned location</Text>
                 <Text style={styles.helperText}>Save a pin only if you want authorized SRA staff to see your farm’s precise location.</Text>
@@ -156,17 +156,12 @@ export default function AuthScreen({
                   value={preciseLocationConsent}
                   onValueChange={value => {setPreciseLocationConsent(value); if (!value) {setCoordinates(null);}}}
                 />
-                <Button label={locationBusy ? 'Getting location…' : coordinates ? 'Location pin confirmed' : 'Get GPS location'} kind="light" onPress={() => void captureLocation()} disabled={!preciseLocationConsent || locationBusy} loading={locationBusy} />
+                {preciseLocationConsent ? <>
+                  <Text style={styles.helperText}>Choose your farm location on the map. Tap to place or move the pin. Map tiles need internet.</Text>
+                  <LocationPicker value={coordinates} onChange={setCoordinates} />
+                  <Button label={locationBusy ? 'Getting location…' : coordinates ? 'Farm pin selected' : 'Get GPS location'} kind="light" onPress={() => void captureLocation()} disabled={locationBusy} loading={locationBusy} />
+                </> : null}
                 {coordinates ? <>
-                  <WebView
-                    source={{html: createFarmPinPreviewHtml(coordinates.latitude, coordinates.longitude)}}
-                    style={styles.authMapPreview}
-                    javaScriptEnabled
-                    domStorageEnabled
-                    mixedContentMode="never"
-                    setSupportMultipleWindows={false}
-                    accessibilityLabel="Farm pin preview map"
-                  />
                   <Text style={styles.coordinatesText}>Pinned location · {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
                 </> : null}
                 <Field label="Email address" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
@@ -184,8 +179,6 @@ export default function AuthScreen({
                 <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry />
               </>
             )}
-            <Field label="RSSI server address" value={serverAddress} onChangeText={setServerAddress} placeholder="https://your-rssi-server.example" keyboardType="url" autoCapitalize="none" />
-            <Text style={styles.helperText}>Use the SRA network address on Wi-Fi or your organization’s HTTPS address. This setting is saved on this device.</Text>
             <Button label={busy ? 'Connecting…' : isRegistering ? 'Register' : 'Sign in'} onPress={submit} disabled={busy} loading={busy} />
             <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); setError('');}}>
               <Text style={styles.linkText}>{isRegistering ? 'Already registered? Sign in' : 'New to RSSI? Register your farm'}</Text>
@@ -203,6 +196,3 @@ export default function AuthScreen({
 
 export {LoadingScreen};
 
-function createFarmPinPreviewHtml(latitude: number, longitude: number): string {
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#e5f2f7}.leaflet-control-attribution{font-size:8px!important}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map('map',{zoomControl:false}).setView([${latitude},${longitude}],15);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);L.marker([${latitude},${longitude}]).addTo(map).bindPopup('Your farm location').openPopup();</script></body></html>`;
-}

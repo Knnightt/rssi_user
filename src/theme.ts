@@ -1,6 +1,14 @@
-import {Platform, StyleSheet} from 'react-native';
+import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {Platform, StyleSheet, useColorScheme} from 'react-native';
 
-const C = {
+export type ThemeMode = 'system' | 'light' | 'dark';
+type ResolvedTheme = 'light' | 'dark';
+
+const themeStorageKey = 'rssi_app_theme';
+let activeTheme: ResolvedTheme = 'light';
+
+const lightPalette = {
   blue: '#075EAA',
   blueDark: '#06477F',
   green: '#18834B',
@@ -17,7 +25,31 @@ const C = {
   redSoft: '#FFF0F0',
 };
 
-const styles = StyleSheet.create({
+const darkPalette = {
+  blue: '#68a6ef',
+  blueDark: '#8abaff',
+  green: '#52c584',
+  greenSoft: '#19392b',
+  ink: '#e7eef6',
+  muted: '#a8b7c7',
+  line: '#34475b',
+  paper: '#172637',
+  background: '#0d1927',
+  paleBlue: '#1b3046',
+  amber: '#f0b954',
+  amberSoft: '#42351e',
+  red: '#f07b83',
+  redSoft: '#42272d',
+};
+
+export const C = new Proxy(lightPalette, {
+  get: (_target, key: string | symbol) => {
+    const palette = activeTheme === 'dark' ? darkPalette : lightPalette;
+    return palette[key as keyof typeof lightPalette];
+  },
+});
+
+const lightStyles = StyleSheet.create({
   flex: {flex: 1},
   appRoot: {flex: 1, backgroundColor: C.background},
   authRoot: {flex: 1, backgroundColor: C.background},
@@ -200,8 +232,10 @@ const styles = StyleSheet.create({
   mapOfflineIcon: {fontSize: 35, color: C.green, marginBottom: 8},
   mapAttribution: {textAlign: 'right', fontSize: 10, color: C.muted, marginTop: -5, marginBottom: 7},
   coordinatesText: {fontSize: 10, color: C.muted, marginTop: 6},
-  authMapPreview: {height: 150, borderRadius: 8, marginTop: 10, overflow: 'hidden'},
+  locationPickerFrame: {height: 260, borderRadius: 10, marginTop: 8, marginBottom: 8, overflow: 'hidden', borderWidth: 1, borderColor: C.line},
+  locationPickerMap: {flex: 1, backgroundColor: '#eaf0ea'},
   reportRow: {flexDirection: 'row', alignItems: 'center', gap: 9, padding: 9, marginTop: 7, borderColor: '#D8E3EB', borderWidth: 1, borderRadius: 8, backgroundColor: C.paper},
+  reportRowBadges: {alignItems: 'flex-end', gap: 5, maxWidth: 140},
   detailStatus: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 5},
   detailLabel: {marginTop: 16},
   reportRowIcon: {width: 34, height: 34, borderRadius: 11, backgroundColor: C.paleBlue, alignItems: 'center', justifyContent: 'center'},
@@ -248,4 +282,96 @@ const styles = StyleSheet.create({
   loadingText: {fontSize: 13, color: C.muted, marginTop: 11},
 });
 
-export {C, styles};
+const darkColorMap: Record<string, string> = {
+  '#ffffff': darkPalette.paper, '#fff': darkPalette.paper,
+  '#eef3f7': darkPalette.background, '#183247': darkPalette.ink, '#667b8c': darkPalette.muted,
+  '#d7e1e9': darkPalette.line, '#e8f4ec': darkPalette.greenSoft, '#eaf2f8': darkPalette.paleBlue,
+  '#fff5db': darkPalette.amberSoft, '#fff0f0': darkPalette.redSoft, '#a86a00': darkPalette.amber,
+  '#46546b': '#c5d0dc', '#98a5b8': '#8496aa', '#b8c9d7': '#465b70', '#edf0f5': darkPalette.line,
+  '#f8faff': '#1c2c3f', '#f5f8fa': '#1b2b3d', '#eaf2fc': '#1c3046', '#fff7d8': '#40351d',
+  '#fff0dc': '#422e20', '#fde7e8': '#42272d', '#d8e3eb': darkPalette.line, '#8692a5': '#a0afbf',
+  '#8290a5': '#9caec0', '#7b889c': '#9eafc1', '#c9d6e0': '#3b5066',
+  '#eef3fe': '#1b3046', '#dbe7ff': '#263d59',
+  '#276844': '#8ad9aa', '#31664a': '#91d3a8', '#52678a': '#b3c3d8',
+  '#aab6c8': '#aebdce', '#b9cbd9': '#546a80', '#c8d7e2': '#455a70',
+  '#c8d8ff': '#354c70', '#c8e7d1': '#2a4d3a', '#d7e0ec': darkPalette.line,
+  '#ddf5e6': '#183c2c', '#e5f7eb': '#193b2b', '#ebc6c8': '#5a3338', '#f0ced0': '#533137',
+  '#075eaa': '#75afff', '#06477f': '#8abaff', '#18834b': '#63d18e', '#b83b42': '#f07b83',
+};
+
+function createDarkStyles() {
+  const definitions: Record<string, Record<string, unknown>> = {};
+  const accentBackgrounds: Record<string, string> = {
+    '#075eaa': '#0c4b78', '#06477f': '#0b3d63', '#18834b': '#155d3c',
+    '#b83b42': '#742c33', '#a86a00': '#754b00',
+  };
+  const accentText: Record<string, string> = {
+    '#075eaa': '#75afff', '#06477f': '#8abaff', '#18834b': '#63d18e',
+    '#b83b42': '#f07b83', '#a86a00': '#f0b954',
+  };
+  for (const [name, style] of Object.entries(lightStyles)) {
+    const darkStyle: Record<string, unknown> = {};
+    for (const [property, value] of Object.entries(style as Record<string, unknown>)) {
+      if (typeof value !== 'string') {
+        darkStyle[property] = value;
+        continue;
+      }
+      const color = value.toLowerCase();
+      if (property === 'backgroundColor') {
+        darkStyle[property] = accentBackgrounds[color] || darkColorMap[color] || value;
+      } else if (property === 'color') {
+        darkStyle[property] = color === '#fff' || color === '#ffffff'
+          ? '#ffffff'
+          : accentText[color] || darkColorMap[color] || value;
+      } else if (property === 'borderColor') {
+        darkStyle[property] = color === '#fff' || color === '#ffffff' ? darkPalette.line : darkColorMap[color] || value;
+      } else if (property === 'shadowColor') {
+        darkStyle[property] = '#000000';
+      } else {
+        darkStyle[property] = darkColorMap[color] || value;
+      }
+    }
+    definitions[name] = darkStyle;
+  }
+  return StyleSheet.create(definitions) as typeof lightStyles;
+}
+
+const darkStyles = createDarkStyles();
+export const styles = new Proxy(lightStyles, {
+  get: (_target, key: string | symbol) => {
+    const activeStyles = activeTheme === 'dark' ? darkStyles : lightStyles;
+    return activeStyles[key as keyof typeof lightStyles];
+  },
+});
+
+type ThemeContextValue = {mode: ThemeMode; resolvedTheme: ResolvedTheme; setMode: (mode: ThemeMode) => Promise<void>};
+const ThemeContext = createContext<ThemeContextValue>({mode: 'system', resolvedTheme: 'light', setMode: async () => undefined});
+
+export function ThemeProvider({children}: {children: React.ReactNode}) {
+  const systemScheme = useColorScheme();
+  const [mode, setModeState] = useState<ThemeMode>('system');
+  useEffect(() => {
+    let mounted = true;
+    void AsyncStorage.getItem(themeStorageKey).then(saved => {
+      if (mounted && (saved === 'system' || saved === 'light' || saved === 'dark')) setModeState(saved);
+    }).catch(() => undefined);
+    return () => { mounted = false; };
+  }, []);
+
+  const resolvedTheme: ResolvedTheme = mode === 'system' ? (systemScheme === 'dark' ? 'dark' : 'light') : mode;
+  activeTheme = resolvedTheme;
+  const setMode = useCallback(async (next: ThemeMode) => {
+    setModeState(next);
+    try {
+      await AsyncStorage.setItem(themeStorageKey, next);
+    } catch {
+      // Keep the selected appearance for this session if device storage fails.
+    }
+  }, []);
+  const value = useMemo(() => ({mode, resolvedTheme, setMode}), [mode, resolvedTheme, setMode]);
+  return React.createElement(ThemeContext.Provider, {value}, children);
+}
+
+export function useTheme(): ThemeContextValue {
+  return useContext(ThemeContext);
+}

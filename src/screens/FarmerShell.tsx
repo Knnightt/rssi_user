@@ -1,15 +1,17 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {ActivityIndicator, Image, Platform, ScrollView, Share, Text, TextInput, TouchableOpacity, View} from 'react-native';
+import {ActivityIndicator, Image, Platform, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import {WebView} from 'react-native-webview';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, getApiBaseUrl} from '../api';
+import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
+import {LocationPicker} from '../components/LocationPicker';
 import {createId, QueuedPhoto, QueuedReport, storePhoto} from '../reportQueue';
-import {C, styles} from '../theme';
+import {C, styles, useTheme} from '../theme';
 import {Tab} from '../types';
-import {Avatar, BrandMark, Button, Card, Choice, CommunityCard, EmptyState, FarmRow, Field, InfoRow, NavButton, Notice, PageIntro, Pill, PrivacyNote, QueuedReportRow, ReportRow, SummaryCard, ToggleLine} from '../components/UI';
+import {Avatar, BrandMark, Button, Card, Choice, CommunityCard, EmptyState, FarmRow, Field, InfoRow, LanguageSwitcher, NavButton, Notice, PageIntro, Pill, PrivacyNote, QueuedReportRow, ReportRow, SeverityBadge, SummaryCard, ThemeSwitcher, ToggleLine} from '../components/UI';
+import {LocalizedText as Text, useLanguage} from '../i18n';
 
 export default function FarmerShell(props: {
   user: Farmer;
@@ -32,10 +34,11 @@ export default function FarmerShell(props: {
   onRefresh: () => Promise<void>;
   onLoadCommunity: () => Promise<void>;
   onSignOut: () => Promise<void>;
-  onChangeServer: () => Promise<void>;
   onUpdateFarmerName: (name: string) => Promise<void>;
   onCommunityConfirmed: (id: number) => Promise<void>;
 }) {
+  useTheme();
+  const {language, t} = useLanguage();
   const {
     user, properties, reports, queue, community, tab, setTab,
     hasInternet, networkConnected, serverReachable, busy, notice, clearNotice, onMessage, token,
@@ -43,7 +46,7 @@ export default function FarmerShell(props: {
   const [farmForm, setFarmForm] = useState(false);
   const [farmBusy, setFarmBusy] = useState(false);
   const [farmMessage, setFarmMessage] = useState('');
-  const [farmValues, setFarmValues] = useState({name: '', province: 'Negros Oriental', municipality: '', barangay: '', size: ''});
+  const [farmValues, setFarmValues] = useState({name: '', province: 'Negros Oriental', municipality: '', barangay: '', address: '', size: ''});
   const [farmLocationConsent, setFarmLocationConsent] = useState(false);
   const [farmCoordinates, setFarmCoordinates] = useState<FarmCoordinates | null>(null);
   const [farmLocationBusy, setFarmLocationBusy] = useState(false);
@@ -160,13 +163,14 @@ export default function FarmerShell(props: {
           province: farmValues.province,
           municipality: farmValues.municipality,
           barangay: farmValues.barangay || null,
+          address: farmValues.address.trim() || null,
           sizeHectares: farmValues.size ? Number(farmValues.size) : null,
           latitude: farmCoordinates?.latitude ?? null,
           longitude: farmCoordinates?.longitude ?? null,
           locationConsent: farmLocationConsent,
         }),
       });
-      setFarmValues({name: '', province: farmValues.province, municipality: '', barangay: '', size: ''});
+      setFarmValues({name: '', province: farmValues.province, municipality: '', barangay: '', address: '', size: ''});
       setFarmForm(false);
       setFarmMessage('Farm added to your account.');
       setFarmLocationConsent(false);
@@ -279,6 +283,7 @@ export default function FarmerShell(props: {
           </View>
           <Field label="Municipality / city" value={farmValues.municipality} onChangeText={value => setFarmValues(current => ({...current, municipality: value}))} placeholder="Municipality / city" autoCapitalize="words" />
           <Field label="Barangay (optional)" value={farmValues.barangay} onChangeText={value => setFarmValues(current => ({...current, barangay: value}))} placeholder="Barangay" autoCapitalize="words" />
+          <Field label="Complete farm address" value={farmValues.address} onChangeText={value => setFarmValues(current => ({...current, address: value}))} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
           <Field label="Farm area (hectares) *" value={farmValues.size} onChangeText={value => setFarmValues(current => ({...current, size: value.replace(/[^0-9.]/g, '')}))} placeholder="0.00" keyboardType="decimal-pad" />
           <Text style={styles.helperText}>Required to size your farm circle on the map.</Text>
           <ToggleLine
@@ -287,11 +292,15 @@ export default function FarmerShell(props: {
             value={farmLocationConsent}
             onValueChange={value => {setFarmLocationConsent(value); if (!value) {setFarmCoordinates(null);}}}
           />
-          <Button label={farmLocationBusy ? 'Getting location…' : farmCoordinates ? 'GPS pin saved for this farm' : 'Use current location'} kind="light" disabled={!farmLocationConsent || farmLocationBusy} loading={farmLocationBusy} onPress={() => {
+          {farmLocationConsent ? <>
+          <Text style={styles.helperText}>Choose your farm location on the map. Tap to place or move the pin. Map tiles need internet.</Text>
+          <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} />
+          <Button label={farmLocationBusy ? 'Getting location…' : farmCoordinates ? 'Farm pin selected' : 'Use current location'} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
             setFarmLocationBusy(true);
             void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : 'Could not read location.')).finally(() => setFarmLocationBusy(false));
           }} />
           {farmCoordinates ? <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text> : null}
+          </> : null}
           {!networkConnected ? <Text style={styles.helperText}>Adding a farm needs a connection. You can still save reports about farms already on your account.</Text> : null}
           <View style={styles.buttonRow}>
             <Button label="Cancel" kind="light" onPress={() => {setFarmForm(false); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
@@ -310,7 +319,7 @@ export default function FarmerShell(props: {
 
   const visibleMapProperties = properties.filter(property => {
     const query = mapSearch.trim().toLocaleLowerCase();
-    const matchesQuery = !query || [property.name, property.province, property.municipality, property.barangay || '']
+    const matchesQuery = !query || [property.name, property.province, property.municipality, property.barangay || '', property.address || '']
       .some(value => value.toLocaleLowerCase().includes(query));
     const matchesProvince = mapProvinceFilter === 'All provinces' || property.province === mapProvinceFilter;
     return matchesQuery && matchesProvince;
@@ -332,11 +341,11 @@ export default function FarmerShell(props: {
   }, {});
   const dashboardMatches = dashboardSearch.trim()
     ? {
-      farms: properties.filter(property => `${property.name} ${property.province} ${property.municipality} ${property.barangay || ''}`.toLocaleLowerCase().includes(dashboardSearch.trim().toLocaleLowerCase())),
+      farms: properties.filter(property => `${property.name} ${property.province} ${property.municipality} ${property.barangay || ''} ${property.address || ''}`.toLocaleLowerCase().includes(dashboardSearch.trim().toLocaleLowerCase())),
       reports: reports.filter(report => `${report.code} ${report.property_name} ${report.province} ${report.municipality} ${report.observations}`.toLocaleLowerCase().includes(dashboardSearch.trim().toLocaleLowerCase())),
     }
     : null;
-  const mapHtml = useMemo(() => createMapHtml(visibleMapProperties, reports, queue), [visibleMapProperties, reports, queue]);
+  const mapHtml = useMemo(() => createMapHtml(visibleMapProperties, reports, queue, language), [visibleMapProperties, reports, queue, language]);
   const screenTitle = tab === 'home' ? 'Dashboard'
     : tab === 'map' ? 'Map coverage'
       : tab === 'report' ? 'Submit report'
@@ -354,10 +363,10 @@ export default function FarmerShell(props: {
             <TextInput
               value={dashboardSearch}
               onChangeText={setDashboardSearch}
-              placeholder="Search farms, barangays, or reports…"
+              placeholder={t('Search farms, barangays, or reports…')}
               placeholderTextColor="#7D91A2"
               style={styles.dashboardSearch}
-              accessibilityLabel="Search farms and reports"
+              accessibilityLabel={t('Search farms and reports')}
               returnKeyType="search"
             />
             {dashboardMatches ? (
@@ -451,7 +460,7 @@ export default function FarmerShell(props: {
         return (
           <>
             <PageIntro eyebrow="NEGROS ORIENTAL & OCCIDENTAL" title="Map coverage" subtitle="Farm circle size follows the recorded hectares. Circle color follows your latest farmer-submitted report severity." />
-            <TextInput value={mapSearch} onChangeText={setMapSearch} placeholder="Search city, farm, or report…" placeholderTextColor="#7D91A2" style={styles.dashboardSearch} accessibilityLabel="Search map coverage" />
+            <TextInput value={mapSearch} onChangeText={setMapSearch} placeholder={t('Search city, farm, or report…')} placeholderTextColor="#7D91A2" style={styles.dashboardSearch} accessibilityLabel={t('Search map coverage')} />
             <View style={styles.filterChipRow}>
               {['All provinces', 'Negros Oriental', 'Negros Occidental'].map(value => (
                 <TouchableOpacity key={value} style={[styles.filterChip, mapProvinceFilter === value && styles.filterChipActive]} onPress={() => setMapProvinceFilter(value)}>
@@ -489,16 +498,17 @@ export default function FarmerShell(props: {
             </Card>
             <Card>
               <Text style={styles.cardTitle}>Farm area and report severity</Text>
-              <Text style={styles.cardSub}>Circles approximate recorded farm area. Report severity reflects the farmer’s observation and is not an SRA diagnosis.</Text>
+              <Text style={styles.cardSub}>Circles approximate recorded farm area. Colors follow the farmer’s latest damage estimate, not an SRA diagnosis.</Text>
               <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8}}>
                 {[
                   ['#64748b', 'Gray · no report / not assessed'],
-                  ['#16834a', 'Green · low'],
-                  ['#d97706', 'Amber · moderate'],
-                  ['#dc2626', 'Red · severe'],
+                  ['#2563eb', 'Blue · Mild · 1–20%'],
+                  ['#eab308', 'Yellow · Moderate · 21–50%'],
+                  ['#f97316', 'Orange · Severe · 51–70%'],
+                  ['#dc2626', 'Red · Highly severe · 71–100%'],
                 ].map(([color, label]) => (
                   <View key={label} style={{flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 145}}>
-                    <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: color}} />
+                    <View style={{width: 10, height: 10, flexShrink: 0, borderRadius: 5, borderWidth: 1, borderColor: color, backgroundColor: color}} />
                     <Text style={styles.helperText}>{label}</Text>
                   </View>
                 ))}
@@ -549,8 +559,8 @@ export default function FarmerShell(props: {
                     <TouchableOpacity key={property.id} style={[styles.propertyOption, selectedFarm === property.id && styles.propertyOptionActive]} onPress={() => setSelectedFarm(property.id)}>
                       <View style={[styles.radio, selectedFarm === property.id && styles.radioActive]}>{selectedFarm === property.id ? <View style={styles.radioInner} /> : null}</View>
                       <View style={styles.flex}>
-                        <Text style={styles.propertyOptionTitle}>{property.name}</Text>
-                        <Text style={styles.propertyOptionSub}>{property.municipality} · {property.province}</Text>
+                        <NativeText style={styles.propertyOptionTitle}>{property.name}</NativeText>
+                        <NativeText style={styles.propertyOptionSub}>{property.municipality} · {property.province}</NativeText>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -626,11 +636,12 @@ export default function FarmerShell(props: {
                 <View style={styles.detailStatus}><Text style={styles.cardTitle}>SRA status</Text><Pill text={selectedReport.verification_status} tone={selectedReport.verification_status === 'Confirmed' ? 'green' : selectedReport.verification_status === 'No detection' ? 'gray' : 'amber'} /></View>
                 <InfoRow label="Observed" value={selectedReport.observed_at} />
                 <InfoRow label="Submitted" value={selectedReport.submitted_at} />
-                <InfoRow label="Farmer severity" value={selectedReport.farmer_severity} />
-                <InfoRow label="SRA severity" value={selectedReport.sra_severity || 'Not assessed'} />
+                <View style={styles.infoRow}><Text style={styles.infoLabel}>Farmer severity</Text><SeverityBadge severity={selectedReport.farmer_severity} range={selectedReport.farmer_severity_range} /></View>
+                <Text style={styles.helperText}>Farmer-estimated crop damage; SRA verification is recorded separately.</Text>
+                <InfoRow label="SRA severity" value={selectedReport.sra_severity || 'Not assessed'} translateValue />
                 <InfoRow label="Affected area" value={`${selectedReport.affected_area_hectares || '0'} ha`} />
-                <Text style={styles.inputLabel}>Observation</Text><Text style={styles.bodyText}>{selectedReport.observations}</Text>
-                <Text style={[styles.inputLabel, styles.detailLabel]}>Damage description</Text><Text style={styles.bodyText}>{selectedReport.damage_description}</Text>
+                <Text style={styles.inputLabel}>Observation</Text><NativeText style={styles.bodyText}>{selectedReport.observations}</NativeText>
+                <Text style={[styles.inputLabel, styles.detailLabel]}>Damage description</Text><NativeText style={styles.bodyText}>{selectedReport.damage_description}</NativeText>
               </Card>
               {selectedReport.photos.length > 0 ? <Card><Text style={styles.cardTitle}>Attached photos</Text>{selectedReport.photos.map(photo => <Text key={photo.id} style={styles.photoName}>{photo.name}</Text>)}</Card> : null}
               <PrivacyNote text="A farmer report is an observation for SRA review. The farmer's estimate is not an SRA diagnosis." />
@@ -652,7 +663,7 @@ export default function FarmerShell(props: {
               <Text style={styles.cardSub}>{historyFilter === 'Pending' ? 'Reports awaiting SRA review.' : historyFilter === 'Reviewed' ? 'Reports with a recorded SRA review.' : historyFilter === 'Severe' ? 'Reports you marked severe or highly severe.' : 'All reports from your account.'}</Text>
               <View style={styles.buttonRow}><View style={styles.flex}><Button label="Change filters" kind="blue" onPress={() => setHistoryFilter('All')} /></View><View style={styles.flex}><Button label="Export CSV" kind="light" onPress={() => void exportReports()} /></View></View>
             </Card>
-            <TextInput value={reportSearch} onChangeText={setReportSearch} placeholder="Search reports, farms, or municipalities" placeholderTextColor="#98A5B8" style={styles.input} accessibilityLabel="Search reports" returnKeyType="search" />
+            <TextInput value={reportSearch} onChangeText={setReportSearch} placeholder={t('Search reports, farms, or municipalities')} placeholderTextColor="#98A5B8" style={styles.input} accessibilityLabel={t('Search reports')} returnKeyType="search" />
             {queue.length > 0 ? (
               <Card>
                 <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Waiting to sync</Text><Pill text={String(queue.length)} tone="amber" /></View>
@@ -712,9 +723,12 @@ export default function FarmerShell(props: {
               </> : <Button label="Edit profile" kind="light" onPress={() => {setProfileMessage(''); setProfileEditing(true);}} />}
               {profileMessage ? <Notice text={profileMessage} tone={profileMessage.includes('updated') ? 'success' : 'error'} /> : null}
               <InfoRow label="Farmer reference" value={user.reference} />
-              <InfoRow label="Account status" value={user.status} />
-              <InfoRow label="API server" value={getApiBaseUrl()} compact />
-              <Text style={styles.helperText}>For production phones, configure this app to use your organization’s HTTPS RSSI server.</Text>
+              <InfoRow label="Account status" value={user.status} translateValue />
+            </Card>
+            <Card>
+              <Text style={styles.cardTitle}>App settings</Text>
+              <ThemeSwitcher />
+              <LanguageSwitcher />
             </Card>
             <Card>
               <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Default farm / report address</Text><TouchableOpacity onPress={() => setTab('farms')}><Text style={styles.linkText}>Edit farms</Text></TouchableOpacity></View>
@@ -723,6 +737,7 @@ export default function FarmerShell(props: {
                 <InfoRow label="Province" value={selectedProperty.province} />
                 <InfoRow label="Municipality / city" value={selectedProperty.municipality} />
                 <InfoRow label="Barangay" value={selectedProperty.barangay || 'Not provided'} />
+                <InfoRow label="Complete farm address" value={selectedProperty.address || 'Not provided'} />
                 <View style={styles.profileLocationNote}><Text style={styles.profileLocationIcon}>⌖</Text><Text style={styles.profileLocationText}>This farm is selected for your next field report. You can choose another farm before submitting.</Text></View>
               </> : <EmptyState icon="⌖" title="No default farm yet" description="Add a farm so it can be used as the default address for new reports." />}
               <Button label={properties.length ? 'Choose default farm' : 'Add a farm'} kind="light" onPress={() => setTab('farms')} />
@@ -733,7 +748,6 @@ export default function FarmerShell(props: {
               <Text style={[styles.bodyText, {marginTop: 12}]}>Community updates are not cached and cannot be opened offline.</Text>
             </Card>
             {notice ? <Notice text={notice} tone="info" /> : null}
-            <Button label="Change server address" kind="light" onPress={() => props.onChangeServer().catch(() => undefined)} />
             <Button label="Help & support" kind="light" onPress={() => setTab('support')} />
             <Button label="Sign out" kind="danger" onPress={() => void props.onSignOut()} />
           </>
@@ -742,7 +756,7 @@ export default function FarmerShell(props: {
         return (
           <>
             <PageIntro eyebrow="HELP CENTER" title="Help & support" subtitle="Quick help for common RSSI farmer app tasks." action={<TouchableOpacity onPress={() => setTab('profile')}><Text style={styles.linkText}>My account</Text></TouchableOpacity>} />
-            <Card><Text style={styles.cardTitle}>Can't sign in?</Text><Text style={styles.bodyText}>Check the email and password you registered with. Confirm the RSSI server address on the sign-in screen matches your organization's server, then try again while connected to its network.</Text></Card>
+            <Card><Text style={styles.cardTitle}>Can't sign in?</Text><Text style={styles.bodyText}>Check the email and password you registered with, confirm your device is online, and try again. Contact your SRA administrator if you still cannot sign in.</Text></Card>
             <Card><Text style={styles.cardTitle}>Server unavailable or offline?</Text><Text style={styles.bodyText}>Saved farms and reports remain on this device. Reports waiting to sync are submitted automatically after the server is reachable; you can also retry from My reports.</Text></Card>
             <Card><Text style={styles.cardTitle}>Location and privacy</Text><Text style={styles.bodyText}>A precise farm pin is optional and saved only after you grant location permission. Community posts are shared only when you opt in, and never include your name, farm name, exact location, or photos.</Text></Card>
             <Card><Text style={styles.cardTitle}>Need help from SRA?</Text><Text style={styles.bodyText}>Contact your SRA administrator through your organization's established support channel and include your farmer reference: {user.reference}.</Text></Card>
@@ -760,7 +774,7 @@ export default function FarmerShell(props: {
         <View style={styles.headerBrand}><BrandMark /><View style={styles.headerBrandCopy}><Text style={styles.headerBrandName} numberOfLines={1}>{screenTitle}</Text><Text style={styles.headerBrandSub} numberOfLines={1}>RSSI · Negros Oriental & Negros Occidental</Text></View></View>
         <TouchableOpacity style={styles.headerAccount} onPress={() => setTab('profile')}>
           <View style={[styles.headerOnlineDot, {backgroundColor: networkConnected && serverReachable ? C.green : C.amber}]} />
-          <Text style={styles.headerAccountText} numberOfLines={1}>{user.name.split(' ')[0]}</Text>
+          <NativeText style={styles.headerAccountText} numberOfLines={1}>{user.name.split(' ')[0]}</NativeText>
           <Text style={styles.headerAvatar}>{user.name.trim().charAt(0).toUpperCase()}</Text>
         </TouchableOpacity>
       </View>
@@ -790,7 +804,7 @@ export default function FarmerShell(props: {
   );
 }
 
-function createMapHtml(properties: FarmProperty[], reports: FieldReport[], queue: QueuedReport[]): string {
+function createMapHtml(properties: FarmProperty[], reports: FieldReport[], queue: QueuedReport[], language: 'en' | 'tl'): string {
   const latestByProperty = new Map<number, {severity: string; submittedAt: number}>();
   const rememberReport = (propertyId: number | null | undefined, severity: string, submittedAt: string) => {
     if (!propertyId || !Number.isFinite(propertyId)) return;
@@ -813,11 +827,24 @@ function createMapHtml(properties: FarmProperty[], reports: FieldReport[], queue
       severity: latestByProperty.get(property.id)?.severity || null,
     }));
   const encodedFarms = JSON.stringify(farms).replace(/</g, '\\u003c');
+  const mapCopy = language === 'tl' ? {
+    farmArea: 'Lawak ng sakahan', farmAreaNotRecorded: 'Lawak ng sakahan: hindi naitala',
+    latestSeverity: 'Pinakabagong antas ng pinsalang iniulat ng magsasaka: ',
+    noReport: 'Wala pang isinumiteng ulat ng magsasaka', damage: 'na pinsala',
+    severity: {low: 'Banayad', mild: 'Banayad', moderate: 'Katamtaman', severe: 'Malubha', 'highly severe': 'Napakalubha'},
+  } : {
+    farmArea: 'Farm area', farmAreaNotRecorded: 'Farm area not recorded',
+    latestSeverity: 'Latest farmer-reported severity: ', noReport: 'No farmer report submitted', damage: 'damage',
+    severity: {low: 'Mild', mild: 'Mild', moderate: 'Moderate', severe: 'Severe', 'highly severe': 'Highly severe'},
+  };
+  const encodedCopy = JSON.stringify(mapCopy).replace(/</g, '\\u003c');
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#eaf0ea}.leaflet-control-attribution{font-size:9px!important}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
     const map=L.map('map').setView([9.58,122.95],8);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
     const farms=${encodedFarms};
-    const colors={low:'#16834a',mild:'#16834a',moderate:'#d97706',severe:'#dc2626','highly severe':'#dc2626','not assessed':'#64748b'};
+    const copy=${encodedCopy};
+    const colors={low:'#2563eb',mild:'#2563eb',moderate:'#eab308',severe:'#f97316','highly severe':'#dc2626','not assessed':'#64748b'};
+    const ranges={low:'1–20%',mild:'1–20%',moderate:'21–50%',severe:'51–70%','highly severe':'71–100%'};
     const layers=[];
     farms.forEach(farm=>{
       const center=[farm.latitude,farm.longitude];
@@ -831,8 +858,9 @@ function createMapHtml(properties: FarmProperty[], reports: FieldReport[], queue
       const marker=L.circleMarker(center,{radius:8,color:'#ffffff',weight:3,fillColor:color,fillOpacity:1}).addTo(map);
       const popup=document.createElement('div');
       const title=document.createElement('strong');title.textContent=farm.name;popup.append(title);
-      const size=document.createElement('div');size.textContent=Number.isFinite(area)&&area>0?'Farm area: '+area+' ha':'Farm area not recorded';popup.append(size);
-      const report=document.createElement('div');report.textContent=farm.severity?'Latest farmer-reported severity: '+farm.severity:'No farmer report submitted';popup.append(report);
+       const size=document.createElement('div');size.textContent=Number.isFinite(area)&&area>0?copy.farmArea+': '+area+' ha':copy.farmAreaNotRecorded;popup.append(size);
+       const label=copy.severity[severity]||farm.severity;
+       const report=document.createElement('div');report.textContent=farm.severity?copy.latestSeverity+label+(ranges[severity]?' · '+ranges[severity]+' '+copy.damage:''):copy.noReport;popup.append(report);
       marker.bindPopup(popup);layers.push(marker);
     });
     if(layers.length){map.fitBounds(L.featureGroup(layers).getBounds().pad(0.35),{maxZoom:11})}

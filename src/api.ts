@@ -14,6 +14,7 @@ export type FarmProperty = {
   province: string;
   municipality: string;
   barangay: string | null;
+  address: string | null;
   size_hectares: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -32,6 +33,7 @@ export type FieldReport = {
   observations: string;
   damage_description: string;
   farmer_severity: string;
+  farmer_severity_range?: string | null;
   affected_area_hectares: string;
   verification_status: string;
   sra_severity: string | null;
@@ -48,6 +50,7 @@ export type CommunityUpdate = {
   observations: string;
   damage_description: string;
   farmer_severity: string;
+  farmer_severity_range?: string | null;
   verification_status: string;
   confirmation_count: number;
   confirmed_by_me: boolean;
@@ -101,6 +104,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers || {});
   headers.set('Accept', 'application/json');
+  headers.set('ngrok-skip-browser-warning', 'true');
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
@@ -134,7 +138,11 @@ export async function uploadPhotos(
     } as unknown as Blob);
     form.append('photo_ids[]', photo.id);
   });
-  const headers = new Headers({Accept: 'application/json', Authorization: `Bearer ${token}`});
+  const headers = new Headers({
+    Accept: 'application/json',
+    Authorization: `Bearer ${token}`,
+    'ngrok-skip-browser-warning': 'true',
+  });
   let response: Response;
   try {
     response = await fetch(`${getConfiguredApiBaseUrl()}${API_PREFIX}/farmers/me/reports/${reportId}/photos`, {
@@ -146,8 +154,4 @@ export async function uploadPhotos(
     throw new ApiError(0, 'server_unavailable', 'Could not upload report photos. They remain queued on this device.');
   }
   await decodeResponse(response);
-}
-
-export function getApiBaseUrl(): string {
-  return getConfiguredApiBaseUrl();
 }

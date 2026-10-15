@@ -2,7 +2,8 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {AppState, StatusBar} from 'react-native';
 import NetInfo, {NetInfoState} from '@react-native-community/netinfo';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
-import {configureApiBaseUrl, getConfiguredApiBaseUrl} from './src/config';
+import {LanguageProvider} from './src/i18n';
+import {ThemeProvider, useTheme} from './src/theme';
 import {apiRequest, ApiError, AuthResponse, CommunityUpdate, FarmProperty, Farmer, FieldReport} from './src/api';
 import {QueuedReport, readCache, readQueue, syncQueue, writeCache, writeQueue} from './src/reportQueue';
 import {readSecure, readSecureJson, removeSecure, writeSecure, writeSecureJson} from './src/secureStorage';
@@ -12,8 +13,19 @@ import FarmerShell from './src/screens/FarmerShell';
 
 function App() {
   return (
+    <ThemeProvider>
+      <LanguageProvider>
+        <AppFrame />
+      </LanguageProvider>
+    </ThemeProvider>
+  );
+}
+
+function AppFrame() {
+  const {resolvedTheme} = useTheme();
+  return (
     <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle={resolvedTheme === 'dark' ? 'light-content' : 'dark-content'} />
       <RSSIApp />
     </SafeAreaProvider>
   );
@@ -33,7 +45,6 @@ function RSSIApp() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [appReady, setAppReady] = useState(false);
-  const [apiBaseUrl, setApiBaseUrl] = useState(getConfiguredApiBaseUrl());
   const syncLock = useRef(false);
   const activeTab = useRef(tab);
   activeTab.current = tab;
@@ -43,18 +54,13 @@ function RSSIApp() {
     let mounted = true;
     (async () => {
       try {
-        const [savedToken, savedUser, savedApiBaseUrl] = await Promise.all([
+        const [savedToken, savedUser] = await Promise.all([
           readSecure('session-token'),
           readSecureJson<Farmer | null>('session-user', null),
-          readSecure('api-base-url'),
         ]);
-        if (savedApiBaseUrl) {
-          try {
-            setApiBaseUrl(configureApiBaseUrl(savedApiBaseUrl));
-          } catch {
-            // A stale invalid value must not prevent the farmer from opening the app.
-          }
-        }
+        // Remove the server address saved by older versions. The API endpoint is
+        // now an app configuration detail and is never shown or changed by users.
+        await removeSecure('api-base-url').catch(() => undefined);
         if (!mounted) {
           return;
         }
@@ -102,12 +108,6 @@ function RSSIApp() {
     }
     setTab('home');
     setNotice('Welcome to RSSI. Your dashboard will show your saved farm and reports.');
-  }, []);
-
-  const saveApiBaseUrl = useCallback(async (value: string) => {
-    const configured = configureApiBaseUrl(value);
-    await writeSecure('api-base-url', configured);
-    setApiBaseUrl(configured);
   }, []);
 
   const updateFarmerName = useCallback(async (name: string) => {
@@ -291,8 +291,6 @@ function RSSIApp() {
     return (
       <AuthScreen
         onAuthenticated={applyAuth}
-        serverUrl={apiBaseUrl}
-        onServerConfigured={saveApiBaseUrl}
         onMessage={setNotice}
         initialMessage={notice}
       />
@@ -333,20 +331,6 @@ function RSSIApp() {
       onRefresh={refreshFromServer}
       onLoadCommunity={loadCommunity}
       onSignOut={signOut}
-      onChangeServer={async () => {
-        if (token && networkConnected) {
-          await apiRequest('/auth/logout', token, {method: 'POST'}).catch(() => undefined);
-        }
-        await Promise.all([removeSecure('session-token'), removeSecure('session-user')]);
-        setToken(null);
-        setUser(null);
-        setProperties([]);
-        setReports([]);
-        setQueue([]);
-        setCommunity([]);
-        setTab('home');
-        setNotice('Enter the new RSSI server address and sign in. Any saved offline reports remain on this device.');
-      }}
       onUpdateFarmerName={updateFarmerName}
       onCommunityConfirmed={async id => {
         try {
