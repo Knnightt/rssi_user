@@ -1,12 +1,13 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, Image, Platform, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
-import {WebView} from 'react-native-webview';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport} from '../api';
+import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, reverseGeocodeFarmLocation} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
+import {DropdownField} from '../components/DropdownField';
+import negrosLocations from '../data/negrosLocations.json';
 import {createId, QueuedPhoto, QueuedReport, storePhoto} from '../reportQueue';
 import {C, styles, useTheme} from '../theme';
 import {Tab} from '../types';
@@ -50,6 +51,8 @@ export default function FarmerShell(props: {
   const [farmLocationConsent, setFarmLocationConsent] = useState(false);
   const [farmCoordinates, setFarmCoordinates] = useState<FarmCoordinates | null>(null);
   const [farmLocationBusy, setFarmLocationBusy] = useState(false);
+  const farmLocationRequest = useRef(0);
+  const [farmMapGestureActive, setFarmMapGestureActive] = useState(false);
   const [locationEditProperty, setLocationEditProperty] = useState<FarmProperty | null>(null);
   const [selectedFarm, setSelectedFarm] = useState<number | null>(properties[0]?.id ?? null);
   const [observedAt, setObservedAt] = useState(localDate());
@@ -66,11 +69,7 @@ export default function FarmerShell(props: {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportSearch, setReportSearch] = useState('');
   const [dashboardSearch, setDashboardSearch] = useState('');
-  const [mapSearch, setMapSearch] = useState('');
-  const [mapProvinceFilter, setMapProvinceFilter] = useState('All provinces');
-  const [mapSeverityFilter, setMapSeverityFilter] = useState('All severity');
   const [historyFilter, setHistoryFilter] = useState('All');
-  const [selectedMapReportId, setSelectedMapReportId] = useState<number | null>(null);
   const [selectedReport, setSelectedReport] = useState<FieldReport | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileName, setProfileName] = useState(user.name);
@@ -150,8 +149,8 @@ export default function FarmerShell(props: {
 
   const saveFarm = async () => {
     const farmArea = Number(farmValues.size);
-    if (!farmValues.name.trim() || !farmValues.municipality.trim() || !farmValues.size.trim() || !Number.isFinite(farmArea) || farmArea <= 0) {
-      setFarmMessage('Enter a farm name, municipality and farm area greater than zero.');
+    if (!farmValues.name.trim() || !farmValues.municipality.trim() || !farmValues.barangay.trim() || !farmValues.size.trim() || !Number.isFinite(farmArea) || farmArea <= 0) {
+      setFarmMessage('Enter a farm name, select a municipality and barangay, and enter a farm area greater than zero.');
       return;
     }
     if (farmLocationConsent && !farmCoordinates) {
@@ -170,8 +169,8 @@ export default function FarmerShell(props: {
           barangay: farmValues.barangay || null,
           address: farmValues.address.trim() || null,
           sizeHectares: farmValues.size ? Number(farmValues.size) : null,
-          latitude: farmCoordinates?.latitude ?? null,
-          longitude: farmCoordinates?.longitude ?? null,
+          latitude: farmLocationConsent ? farmCoordinates?.latitude ?? null : null,
+          longitude: farmLocationConsent ? farmCoordinates?.longitude ?? null : null,
           locationConsent: farmLocationConsent,
         }),
       });
@@ -187,6 +186,106 @@ export default function FarmerShell(props: {
     } finally {
       setFarmBusy(false);
     }
+  };
+
+  const captureNewFarmLocation = () => {
+    const request = ++farmLocationRequest.current;
+    setFarmLocationBusy(true);
+    setFarmMessage('');
+    void captureFarmCoordinates()
+      .then(coordinates => {
+        if (request === farmLocationRequest.current) setFarmCoordinates(coordinates);
+      })
+      .catch(error => {
+        if (request === farmLocationRequest.current) {
+          setFarmMessage(error instanceof Error ? error.message : t('Could not read location.'));
+        }
+      })
+      .finally(() => {
+        if (request === farmLocationRequest.current) setFarmLocationBusy(false);
+      });
+  };
+
+  const locateFarmFromPhone = async () => {
+    const request = ++farmLocationRequest.current;
+    setFarmLocationBusy(true);
+    setFarmMessage('');
+    try {
+      const coordinates = await captureFarmCoordinates();
+      if (request !== farmLocationRequest.current) return;
+      setFarmCoordinates(coordinates);
+      const result = await reverseGeocodeFarmLocation(coordinates);
+      if (request !== farmLocationRequest.current) return;
+
+      const normalizePlace = (value: string) => value.toLocaleLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/^municipality of\s+|^city of\s+|^barangay\s+/g, '')
+        .replace(/\s+city$/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      const provinceCandidates = [result.address.state_district, result.address.province, result.address.region, result.address.state, result.displayName]
+        .filter((value): value is string => Boolean(value));
+      const provinces = ['Negros Oriental', 'Negros Occidental'];
+      const detectedProvince = provinces.find(province => provinceCandidates.some(value => {
+        const normalizedValue = normalizePlace(value);
+        const normalizedProvince = normalizePlace(province);
+        return normalizedValue === normalizedProvince || normalizedValue.includes(normalizedProvince);
+      }));
+      const province = detectedProvince || farmValues.province;
+      const municipalities = negrosLocations[province as keyof typeof negrosLocations] || [];
+      const municipalityCandidates = [result.address.city, result.address.town, result.address.municipality, result.address.county, result.address.locality]
+        .filter((value): value is string => Boolean(value));
+      const municipality = municipalities.find(option => municipalityCandidates.some(candidate => {
+        const normalizedOption = normalizePlace(option.name);
+        const normalizedCandidate = normalizePlace(candidate);
+        return normalizedOption === normalizedCandidate;
+      }));
+      const barangayCandidates = [result.address.suburb, result.address.neighbourhood, result.address.neighborhood, result.address.quarter, result.address.village, result.address.hamlet, result.address.residential]
+        .filter((value): value is string => Boolean(value));
+      const barangay = municipality?.barangays.find(option => barangayCandidates.some(candidate => {
+        const normalizedOption = normalizePlace(option);
+        const normalizedCandidate = normalizePlace(candidate);
+        return normalizedOption === normalizedCandidate;
+      }));
+
+      setFarmValues(current => ({
+        ...current,
+        province,
+        municipality: municipality?.name || '',
+        barangay: barangay || '',
+        address: result.displayName,
+      }));
+      if (!detectedProvince || !municipality || !barangay) {
+        setFarmMessage('Phone location found. Review the address and choose any location fields that could not be matched automatically.');
+      }
+    } catch (error) {
+      if (request === farmLocationRequest.current) {
+        setFarmMessage(error instanceof Error ? error.message : 'Could not fill the address from your phone location.');
+      }
+    } finally {
+      if (request === farmLocationRequest.current) setFarmLocationBusy(false);
+    }
+  };
+
+  const selectFarmProvince = (province: string) => {
+    farmLocationRequest.current += 1;
+    setFarmLocationBusy(false);
+    setFarmCoordinates(null);
+    setFarmMessage('');
+    setFarmValues(current => ({...current, province, municipality: '', barangay: ''}));
+  };
+
+  const selectFarmMunicipality = (municipality: string) => {
+    farmLocationRequest.current += 1;
+    setFarmLocationBusy(false);
+    setFarmCoordinates(null);
+    setFarmMessage('');
+    setFarmValues(current => ({...current, municipality, barangay: ''}));
+  };
+
+  const selectFarmBarangay = (barangay: string) => {
+    farmLocationRequest.current += 1;
+    setFarmCoordinates(null);
+    setFarmValues(current => ({...current, barangay}));
+    captureNewFarmLocation();
   };
 
   const openFarmLocationEditor = (property: FarmProperty) => {
@@ -311,6 +410,9 @@ export default function FarmerShell(props: {
     }
   };
 
+  const farmMunicipalityOptions = negrosLocations[farmValues.province as keyof typeof negrosLocations] || [];
+  const farmBarangayOptions = farmMunicipalityOptions.find(item => item.name === farmValues.municipality)?.barangays || [];
+
   const createFarmForm = () => (
     <Card>
       <Text style={styles.cardTitle}>{locationEditProperty ? t('Update farm location') : farmForm ? t('Add a farm') : t('Your farms')}</Text>
@@ -325,8 +427,8 @@ export default function FarmerShell(props: {
             onValueChange={value => {setFarmLocationConsent(value); if (!value) setFarmCoordinates(null);}}
           />
           {farmLocationConsent ? <>
-            <Text style={styles.helperText}>{t('Choose your exact farm location on the map. Tap to place or move the pin. Map tiles need internet.')}</Text>
-            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} />
+            <Text style={styles.helperText}>{t('Choose your exact farm location on the map. Use two fingers to move the map under the fixed center pin. Map tiles need internet.')}</Text>
+            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
             <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
               setFarmLocationBusy(true);
               void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : t('Could not read location.'))).finally(() => setFarmLocationBusy(false));
@@ -345,14 +447,29 @@ export default function FarmerShell(props: {
       ) : farmForm ? (
         <>
           <Field label="Farm name" value={farmValues.name} onChangeText={value => setFarmValues(current => ({...current, name: value}))} placeholder="Your farm name" autoCapitalize="words" />
+          <Text style={styles.helperText}>Your phone coordinates are sent to OpenStreetMap to look up nearby address details.</Text>
+          <Button label={farmLocationBusy ? 'Getting phone location…' : 'Use phone location to fill address'} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => void locateFarmFromPhone()} />
           <Text style={styles.inputLabel}>Province</Text>
           <View style={styles.choiceRow}>
             {['Negros Oriental', 'Negros Occidental'].map(province => (
-              <Choice key={province} label={province === 'Negros Oriental' ? 'Oriental' : 'Occidental'} active={farmValues.province === province} onPress={() => setFarmValues(current => ({...current, province}))} compact />
+              <Choice key={province} label={province === 'Negros Oriental' ? 'Oriental' : 'Occidental'} active={farmValues.province === province} onPress={() => selectFarmProvince(province)} compact />
             ))}
           </View>
-          <Field label="Municipality / city" value={farmValues.municipality} onChangeText={value => setFarmValues(current => ({...current, municipality: value}))} placeholder="Municipality / city" autoCapitalize="words" />
-          <Field label="Barangay (optional)" value={farmValues.barangay} onChangeText={value => setFarmValues(current => ({...current, barangay: value}))} placeholder="Barangay" autoCapitalize="words" />
+          <DropdownField
+            label="Municipality / city"
+            value={farmValues.municipality}
+            options={farmMunicipalityOptions.map(item => item.name)}
+            placeholder="Select your municipality or city"
+            onSelect={selectFarmMunicipality}
+          />
+          <DropdownField
+            label="Barangay *"
+            value={farmValues.barangay}
+            options={farmBarangayOptions}
+            placeholder={farmValues.municipality ? 'Select your barangay' : 'Select a municipality first'}
+            disabled={!farmValues.municipality}
+            onSelect={selectFarmBarangay}
+          />
           <Field label="Complete farm address" value={farmValues.address} onChangeText={value => setFarmValues(current => ({...current, address: value}))} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
           <Field label="Farm area (hectares) *" value={farmValues.size} onChangeText={value => setFarmValues(current => ({...current, size: value.replace(/[^0-9.]/g, '')}))} placeholder="0.00" keyboardType="decimal-pad" />
           <Text style={styles.helperText}>Required to size your farm circle on the map.</Text>
@@ -360,20 +477,18 @@ export default function FarmerShell(props: {
             title={t('Show this farm in SRA Map Monitoring')}
             description={t('Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.')}
             value={farmLocationConsent}
-            onValueChange={value => {setFarmLocationConsent(value); if (!value) {setFarmCoordinates(null);}}}
+            onValueChange={setFarmLocationConsent}
           />
-          {farmLocationConsent ? <>
-          <Text style={styles.helperText}>Choose your farm location on the map. Tap to place or move the pin. Map tiles need internet.</Text>
-          <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} />
-          <Button label={farmLocationBusy ? 'Getting location…' : farmCoordinates ? 'Farm pin selected' : 'Use current location'} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
-            setFarmLocationBusy(true);
-            void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : 'Could not read location.')).finally(() => setFarmLocationBusy(false));
-          }} />
-          {farmCoordinates ? <>
-            <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
-            {farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
-          </> : null}
-          {!farmCoordinates ? <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text> : null}
+          {farmValues.barangay || farmCoordinates ? <>
+            <Text style={styles.helperText}>Your current location is pinned automatically. Use two fingers to move the map under the center pin to locate your farm.</Text>
+            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+            {farmLocationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
+            {farmCoordinates ? <>
+              <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
+              {farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
+            </> : !farmLocationBusy ? <Text style={styles.helperText}>Choose a point on the map or use current location.</Text> : null}
+            <Button label={farmLocationBusy ? 'Getting location…' : 'Use current location'} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={captureNewFarmLocation} />
+            {!farmLocationConsent ? <Text style={styles.helperText}>The pin is only saved when you enable location consent above.</Text> : null}
           </> : null}
           {!networkConnected ? <Text style={styles.helperText}>Adding a farm needs a connection. You can still save reports about farms already on your account.</Text> : null}
           <View style={styles.buttonRow}>
@@ -396,24 +511,6 @@ export default function FarmerShell(props: {
     </Card>
   );
 
-  const visibleMapProperties = properties.filter(property => {
-    const query = mapSearch.trim().toLocaleLowerCase();
-    const matchesQuery = !query || [property.name, property.province, property.municipality, property.barangay || '', property.address || '']
-      .some(value => value.toLocaleLowerCase().includes(query));
-    const matchesProvince = mapProvinceFilter === 'All provinces' || property.province === mapProvinceFilter;
-    return matchesQuery && matchesProvince;
-  });
-  const visibleMapReports = reports.filter(report => {
-    const query = mapSearch.trim().toLocaleLowerCase();
-    const matchesQuery = !query || [report.code, report.property_name, report.province, report.municipality, report.observations]
-      .some(value => value.toLocaleLowerCase().includes(query));
-    const matchesProvince = mapProvinceFilter === 'All provinces' || report.province === mapProvinceFilter;
-    const severity = report.farmer_severity.toLocaleLowerCase();
-    const matchesSeverity = mapSeverityFilter === 'All severity'
-      || (mapSeverityFilter === 'Mild' && ['mild', 'low'].includes(severity))
-      || (mapSeverityFilter !== 'All severity' && mapSeverityFilter !== 'Mild' && severity === mapSeverityFilter.toLocaleLowerCase());
-    return matchesQuery && matchesProvince && matchesSeverity;
-  });
   const farmsByProvince = properties.reduce<Record<string, number>>((counts, property) => {
     counts[property.province] = (counts[property.province] || 0) + 1;
     return counts;
@@ -424,10 +521,8 @@ export default function FarmerShell(props: {
       reports: reports.filter(report => `${report.code} ${report.property_name} ${report.province} ${report.municipality} ${report.observations}`.toLocaleLowerCase().includes(dashboardSearch.trim().toLocaleLowerCase())),
     }
     : null;
-  const mapHtml = useMemo(() => createMapHtml(visibleMapProperties, reports, queue, language), [visibleMapProperties, reports, queue, language]);
   const screenTitle = tab === 'home' ? 'Dashboard'
-    : tab === 'map' ? 'Farm coverage'
-      : tab === 'report' ? 'Submit report'
+    : tab === 'report' ? 'Submit report'
         : tab === 'history' ? 'My submitted reports'
           : tab === 'community' ? 'Updates'
             : tab === 'farms' ? 'Your farms'
@@ -518,7 +613,6 @@ export default function FarmerShell(props: {
               <View style={styles.flex}><Button label="Add field report" onPress={() => setTab('report')} /></View>
             </View>
             <View style={styles.buttonRow}>
-              <View style={styles.flex}><Button label="View map" kind="light" onPress={() => setTab('map')} /></View>
               <View style={styles.flex}><Button label="View reports" kind="light" onPress={() => setTab('history')} /></View>
             </View>
             <PrivacyNote text="A farmer report is an observation for SRA review. It is not a confirmed RSSI finding." />
@@ -529,95 +623,10 @@ export default function FarmerShell(props: {
           <>
             <PageIntro eyebrow="YOUR FARMS" title="Your farms" subtitle="Manage your farms and add another farm to your account." />
             {createFarmForm()}
-            <Button label="View map coverage" kind="light" onPress={() => setTab('map')} />
             <Card>
               <Text style={styles.cardTitle}>Location privacy</Text>
               <Text style={styles.bodyText}>Farm addresses are visible to you and authorized SRA staff. Your exact GPS pin is optional and is only stored when you give consent.</Text>
             </Card>
-          </>
-        );
-      case 'map':
-        return (
-          <>
-            <PageIntro eyebrow="NEGROS ORIENTAL & OCCIDENTAL" title="Farm coverage" subtitle="Farm circle size follows the recorded hectares. Circle color follows your latest farmer-submitted report severity." />
-            <TextInput value={mapSearch} onChangeText={setMapSearch} placeholder={t('Search city, farm, or report…')} placeholderTextColor="#7D91A2" style={styles.dashboardSearch} accessibilityLabel={t('Search map coverage')} />
-            <View style={styles.filterChipRow}>
-              {['All provinces', 'Negros Oriental', 'Negros Occidental'].map(value => (
-                <TouchableOpacity key={value} style={[styles.filterChip, mapProvinceFilter === value && styles.filterChipActive]} onPress={() => setMapProvinceFilter(value)}>
-                  <Text style={[styles.filterChipText, mapProvinceFilter === value && styles.filterChipTextActive]}>{value === 'All provinces' ? 'Both provinces' : value.replace('Negros ', '')}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={styles.filterChipRow}>
-              {['All severity', 'Mild', 'Moderate', 'Severe', 'Highly severe'].map(value => (
-                <TouchableOpacity key={value} style={[styles.filterChip, mapSeverityFilter === value && styles.filterChipActive]} onPress={() => setMapSeverityFilter(value)}>
-                  <Text style={[styles.filterChipText, mapSeverityFilter === value && styles.filterChipTextActive]}>{value}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Card style={styles.mapCard}>
-              {hasInternet ? (
-                <WebView
-                  key={mapHtml}
-                  originWhitelist={['*']}
-                  source={{html: mapHtml}}
-                  style={styles.mapWebView}
-                  javaScriptEnabled
-                  domStorageEnabled
-                  userAgent="RSSI-Pest-Tracker/1.0 (SRA farmer app)"
-                  mixedContentMode="never"
-                  setSupportMultipleWindows={false}
-                />
-              ) : (
-                <View style={styles.mapOffline}>
-                  <Text style={styles.mapOfflineIcon}>⌖</Text>
-                  <Text style={styles.cardTitle}>Map needs internet</Text>
-                  <Text style={styles.cardSub}>Your saved farms remain available below. Map tiles load only while connected.</Text>
-                </View>
-              )}
-            </Card>
-            <Card>
-              <Text style={styles.cardTitle}>Farm area and report severity</Text>
-              <Text style={styles.cardSub}>Circles approximate recorded farm area. Colors follow the farmer’s latest damage estimate, not an SRA diagnosis.</Text>
-              <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8}}>
-                {[
-                  ['#64748b', 'Gray · no report / not assessed'],
-                  ['#2563eb', 'Blue · Mild · 1–20%'],
-                  ['#eab308', 'Yellow · Moderate · 21–50%'],
-                  ['#f97316', 'Orange · Severe · 51–70%'],
-                  ['#dc2626', 'Red · Highly severe · 71–100%'],
-                ].map(([color, label]) => (
-                  <View key={label} style={{flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 145}}>
-                    <View style={{width: 10, height: 10, flexShrink: 0, borderRadius: 5, borderWidth: 1, borderColor: color, backgroundColor: color}} />
-                    <Text style={styles.helperText}>{label}</Text>
-                  </View>
-                ))}
-              </View>
-            </Card>
-            {properties.length === 0 ? (
-              <Card><EmptyState icon="⌖" title="No farm records" description="Add a farm to see it in your account." /></Card>
-            ) : visibleMapProperties.length === 0 ? <Card><EmptyState icon="⌕" title="No farms match your search" description="Try a different farm name, province, or municipality." /></Card> : visibleMapProperties.map(property => <FarmRow key={property.id} property={property} onPress={() => {setSelectedFarm(property.id); setTab('farms');}} selected={false} />)}
-            <Card>
-              <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Coverage overview</Text><Pill text={`${visibleMapReports.length} reports`} tone="blue" /></View>
-              <Text style={styles.cardSub}>Counts show only records linked to your account.</Text>
-              {visibleMapReports.length === 0 ? <EmptyState icon="⌖" title="No report areas yet" description="Municipalities from your submitted reports will appear here." /> : Object.entries(visibleMapReports.reduce<Record<string, number>>((counts, report) => {
-                const areaName = `${report.municipality}, ${report.province}`;
-                counts[areaName] = (counts[areaName] || 0) + 1;
-                return counts;
-              }, {})).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([areaName, count]) => (
-                <View key={areaName} style={styles.coverageRow}><Text style={styles.coverageArea}>{areaName}</Text><Pill text={String(count)} tone="blue" /></View>
-              ))}
-            </Card>
-            <Card>
-              <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Selected report</Text><TouchableOpacity onPress={() => setTab('history')}><Text style={styles.linkText}>View reports</Text></TouchableOpacity></View>
-              {visibleMapReports.length === 0 ? <EmptyState icon="⌖" title="No reports match these filters" description="Change the province or severity filter to see more of your records." /> : visibleMapReports.slice(0, 5).map(report => (
-                <ReportRow key={report.id} report={report} onPress={() => setSelectedMapReportId(report.id)} />
-              ))}
-              {selectedMapReportId !== null && reports.some(report => report.id === selectedMapReportId) ? <Button label="Open report details" kind="blue" onPress={() => {setSelectedReport(reports.find(report => report.id === selectedMapReportId) || null); setTab('history');}} /> : null}
-              <Button label="Add field report" onPress={() => setTab('report')} />
-            </Card>
-            <Text style={styles.mapAttribution}>Map data © OpenStreetMap contributors</Text>
-            <PrivacyNote text="Other farmers’ exact locations are not shown. Reports are observations pending SRA review." />
           </>
         );
       case 'report':
@@ -867,7 +876,22 @@ export default function FarmerShell(props: {
       {notice ? (
         <TouchableOpacity style={styles.noticeWrap} onPress={clearNotice}><Notice text={notice} tone="info" /><Text style={styles.dismissText}>Tap to dismiss</Text></TouchableOpacity>
       ) : null}
-      <ScrollView style={styles.flex} contentContainerStyle={styles.screenContent} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.screenContent}
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={!farmMapGestureActive}
+        onTouchStartCapture={event => {
+          if (event.nativeEvent.touches.length >= 2) setFarmMapGestureActive(true);
+        }}
+        onTouchMoveCapture={event => {
+          if (event.nativeEvent.touches.length >= 2) setFarmMapGestureActive(true);
+        }}
+        onTouchEndCapture={event => {
+          if (event.nativeEvent.touches.length < 2) setFarmMapGestureActive(false);
+        }}
+        onTouchCancelCapture={() => setFarmMapGestureActive(false)}
+      >
         {renderCurrentScreen()}
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -882,69 +906,6 @@ export default function FarmerShell(props: {
       </View>
     </SafeAreaView>
   );
-}
-
-function createMapHtml(properties: FarmProperty[], reports: FieldReport[], queue: QueuedReport[], language: 'en' | 'tl'): string {
-  const latestByProperty = new Map<number, {severity: string; submittedAt: number}>();
-  const rememberReport = (propertyId: number | null | undefined, severity: string, submittedAt: string) => {
-    if (!propertyId || !Number.isFinite(propertyId)) return;
-    const timestamp = Date.parse(submittedAt) || 0;
-    const previous = latestByProperty.get(propertyId);
-    if (!previous || timestamp >= previous.submittedAt) {
-      latestByProperty.set(propertyId, {severity, submittedAt: timestamp});
-    }
-  };
-  reports.forEach(report => rememberReport(report.property_id, report.farmer_severity, report.submitted_at));
-  queue.forEach(item => rememberReport(Number(item.body.propertyId), String(item.body.farmerSeverity || 'Not assessed'), item.createdAt));
-
-  const farms = properties
-    .filter(property => property.latitude !== null && property.longitude !== null && property.location_consent)
-    .map(property => ({
-      latitude: property.latitude,
-      longitude: property.longitude,
-      name: property.name,
-      areaHectares: property.size_hectares === null ? null : Number(property.size_hectares),
-      severity: latestByProperty.get(property.id)?.severity || null,
-    }));
-  const encodedFarms = JSON.stringify(farms).replace(/</g, '\\u003c');
-  const mapCopy = language === 'tl' ? {
-    farmArea: 'Lawak ng sakahan', farmAreaNotRecorded: 'Lawak ng sakahan: hindi naitala',
-    latestSeverity: 'Pinakabagong antas ng pinsalang iniulat ng magsasaka: ',
-    noReport: 'Wala pang isinumiteng ulat ng magsasaka', damage: 'na pinsala',
-    severity: {low: 'Banayad', mild: 'Banayad', moderate: 'Katamtaman', severe: 'Malubha', 'highly severe': 'Napakalubha'},
-  } : {
-    farmArea: 'Farm area', farmAreaNotRecorded: 'Farm area not recorded',
-    latestSeverity: 'Latest farmer-reported severity: ', noReport: 'No farmer report submitted', damage: 'damage',
-    severity: {low: 'Mild', mild: 'Mild', moderate: 'Moderate', severe: 'Severe', 'highly severe': 'Highly severe'},
-  };
-  const encodedCopy = JSON.stringify(mapCopy).replace(/</g, '\\u003c');
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#eaf0ea}.leaflet-control-attribution{font-size:9px!important}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
-    const map=L.map('map').setView([9.58,122.95],8);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
-    const farms=${encodedFarms};
-    const copy=${encodedCopy};
-    const colors={low:'#2563eb',mild:'#2563eb',moderate:'#eab308',severe:'#f97316','highly severe':'#dc2626','not assessed':'#64748b'};
-    const ranges={low:'1–20%',mild:'1–20%',moderate:'21–50%',severe:'51–70%','highly severe':'71–100%'};
-    const layers=[];
-    farms.forEach(farm=>{
-      const center=[farm.latitude,farm.longitude];
-      const severity=String(farm.severity||'').toLowerCase();
-      const color=colors[severity]||'#64748b';
-      const area=Number(farm.areaHectares);
-      if(Number.isFinite(area)&&area>0){
-        const radius=Math.sqrt((area*10000)/Math.PI);
-        layers.push(L.circle(center,{radius,color,weight:2,fillColor:color,fillOpacity:0.2}).addTo(map));
-      }
-      const marker=L.circleMarker(center,{radius:8,color:'#ffffff',weight:3,fillColor:color,fillOpacity:1}).addTo(map);
-      const popup=document.createElement('div');
-      const title=document.createElement('strong');title.textContent=farm.name;popup.append(title);
-       const size=document.createElement('div');size.textContent=Number.isFinite(area)&&area>0?copy.farmArea+': '+area+' ha':copy.farmAreaNotRecorded;popup.append(size);
-       const label=copy.severity[severity]||farm.severity;
-       const report=document.createElement('div');report.textContent=farm.severity?copy.latestSeverity+label+(ranges[severity]?' · '+ranges[severity]+' '+copy.damage:''):copy.noReport;popup.append(report);
-      marker.bindPopup(popup);layers.push(marker);
-    });
-    if(layers.length){map.fitBounds(L.featureGroup(layers).getBounds().pad(0.35),{maxZoom:11})}
-  </script></body></html>`;
 }
 
 function localDate(): string {

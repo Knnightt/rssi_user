@@ -77,6 +77,52 @@ export type FarmAddressGeocodeResult = {
   confidence: number | null;
 };
 
+export type FarmReverseGeocodeResult = {
+  displayName: string;
+  address: Record<string, string>;
+};
+
+let lastReverseGeocodeAt = 0;
+let reverseGeocodeQueue: Promise<void> = Promise.resolve();
+const reverseGeocodeCache = new Map<string, FarmReverseGeocodeResult>();
+
+/** A user-triggered OSM reverse lookup; keep requests at or below one per second. */
+export function reverseGeocodeFarmLocation(coordinates: {latitude: number; longitude: number}): Promise<FarmReverseGeocodeResult> {
+  const cacheKey = `${coordinates.latitude.toFixed(5)},${coordinates.longitude.toFixed(5)}`;
+  const cached = reverseGeocodeCache.get(cacheKey);
+  if (cached) return Promise.resolve(cached);
+  const lookup = reverseGeocodeQueue.then(async () => {
+    const queuedCache = reverseGeocodeCache.get(cacheKey);
+    if (queuedCache) return queuedCache;
+    const waitMs = Math.max(0, 1100 - (Date.now() - lastReverseGeocodeAt));
+    if (waitMs) await new Promise<void>(resolve => setTimeout(resolve, waitMs));
+    lastReverseGeocodeAt = Date.now();
+
+    const query = `format=jsonv2&addressdetails=1&zoom=18&lat=${encodeURIComponent(String(coordinates.latitude))}&lon=${encodeURIComponent(String(coordinates.longitude))}`;
+    let response: Response;
+    try {
+      response = await fetch(`https://nominatim.openstreetmap.org/reverse?${query}`, {
+        headers: {Accept: 'application/json', 'User-Agent': 'RSSI-Farmer-App/1.0'},
+      });
+    } catch {
+      throw new ApiError(0, 'reverse_geocode_unavailable', 'Could not look up the address for this phone location.');
+    }
+    if (!response.ok) throw new ApiError(response.status, 'reverse_geocode_failed', 'Could not look up the address for this phone location.');
+    const result = await response.json() as {display_name?: unknown; address?: unknown};
+    const address = result.address && typeof result.address === 'object'
+      ? Object.fromEntries(Object.entries(result.address).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+      : {};
+    if (typeof result.display_name !== 'string' || !result.display_name.trim()) {
+      throw new ApiError(404, 'reverse_geocode_not_found', 'No address was found for this phone location.');
+    }
+    const geocoded = {displayName: result.display_name, address};
+    reverseGeocodeCache.set(cacheKey, geocoded);
+    return geocoded;
+  });
+  reverseGeocodeQueue = lookup.then(() => undefined, () => undefined);
+  return lookup;
+}
+
 export class ApiError extends Error {
   status: number;
   code: string;

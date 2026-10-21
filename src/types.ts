@@ -1,4 +1,4 @@
-export type Tab = 'home' | 'farms' | 'map' | 'report' | 'history' | 'community' | 'profile' | 'support';
+export type Tab = 'home' | 'farms' | 'report' | 'history' | 'community' | 'profile' | 'support';
 
 export type RegisterFields = {
   name: string;

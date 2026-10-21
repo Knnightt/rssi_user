@@ -19,6 +19,7 @@ type PickerWebViewProps = {
   setSupportMultipleWindows: boolean;
   onMessage: (event: WebViewMessageEvent) => void;
   onLoadStart: () => void;
+  scrollEnabled: boolean;
   accessibilityLabel: string;
 };
 const PickerWebView = WebView as unknown as React.ComponentType<PickerWebViewProps>;
@@ -27,9 +28,11 @@ const PickerWebView = WebView as unknown as React.ComponentType<PickerWebViewPro
 export function LocationPicker({
   value,
   onChange,
+  onGestureActive,
 }: {
   value: FarmCoordinates | null;
   onChange: (coordinates: FarmCoordinates) => void;
+  onGestureActive?: (active: boolean) => void;
 }) {
   const webView = useRef<WebView | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -57,9 +60,13 @@ export function LocationPicker({
 
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
     try {
-      const message = JSON.parse(event.nativeEvent.data) as {type?: string; latitude?: number; longitude?: number};
+      const message = JSON.parse(event.nativeEvent.data) as {type?: string; latitude?: number; longitude?: number; active?: boolean};
       if (message.type === 'ready') {
         setMapReady(true);
+        return;
+      }
+      if (message.type === 'gesture') {
+        onGestureActive?.(message.active === true);
         return;
       }
       if (message.type === 'location' && Number.isFinite(message.latitude) && Number.isFinite(message.longitude)) {
@@ -68,7 +75,7 @@ export function LocationPicker({
     } catch {
       // Ignore malformed messages from the embedded map.
     }
-  }, [onChange]);
+  }, [onChange, onGestureActive]);
 
   return (
     <View style={styles.locationPickerFrame}>
@@ -82,7 +89,8 @@ export function LocationPicker({
         mixedContentMode="never"
         setSupportMultipleWindows={false}
         onMessage={handleMessage}
-        onLoadStart={() => setMapReady(false)}
+        onLoadStart={() => {setMapReady(false); onGestureActive?.(false);}}
+        scrollEnabled={false}
         accessibilityLabel="Interactive farm location map"
       />
     </View>
@@ -105,7 +113,7 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
 #attribution{position:absolute;right:4px;bottom:2px;z-index:4;padding:2px 4px;background:rgba(255,255,255,.8);font-size:9px;color:#39444a}
 #tile-message{display:none;position:absolute;z-index:5;left:8px;right:52px;top:8px;padding:7px 9px;border-radius:5px;background:rgba(255,255,255,.94);font-size:11px;color:#46545b}
 </style></head><body>
-<div id="map" aria-label="Tap or drag to choose your farm location"><div id="tiles"></div><div id="pin"></div>
+<div id="map" aria-label="Use two fingers to move and pinch to zoom the map under the centered farm pin."><div id="tiles"></div><div id="pin"></div>
 <button class="zoom plus" aria-label="Zoom in">+</button><button class="zoom minus" aria-label="Zoom out">−</button>
 <div id="tile-message">Map tiles did not load. Check your internet connection.</div>
 <div id="attribution">© OpenStreetMap contributors</div></div>
@@ -119,7 +127,6 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
   var zoom=${zoom};
   var selected=null;
   var drag=null;
-  var dragged=false;
   var firstRender=true;
   var renderVersion=0;
 
@@ -133,12 +140,15 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
     var n=Math.PI-2*Math.PI*y/scale;
     return {lat:180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n))),lng:x/scale*360-180};
   }
+  function touchDistance(touches){
+    var dx=touches[0].clientX-touches[1].clientX;
+    var dy=touches[0].clientY-touches[1].clientY;
+    return Math.sqrt(dx*dx+dy*dy);
+  }
   function placePin(){
     if(!selected){pin.style.display='none';return;}
-    var c=project(center.lat,center.lng,zoom);
-    var p=project(selected.lat,selected.lng,zoom);
-    pin.style.left=(map.clientWidth/2+p.x-c.x)+'px';
-    pin.style.top=(map.clientHeight/2+p.y-c.y)+'px';
+    pin.style.left=(map.clientWidth/2)+'px';
+    pin.style.top=(map.clientHeight/2)+'px';
     pin.style.display='block';
   }
   function render(){
@@ -177,39 +187,64 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
     else placePin();
   };
   window.clearFarmPin=function(){selected=null;placePin();};
-  function choose(clientX,clientY){
-    var r=map.getBoundingClientRect();
-    var c=project(center.lat,center.lng,zoom);
-    var p=unproject(c.x+clientX-r.left-r.width/2,c.y+clientY-r.top-r.height/2,zoom);
-    selected={lat:Number(p.lat.toFixed(7)),lng:Number(p.lng.toFixed(7))};
-    placePin();
-    if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'location',latitude:selected.lat,longitude:selected.lng}));
-  }
-  map.addEventListener('click',function(e){
-    if(dragged){dragged=false;return;}
-    if(e.target.classList.contains('zoom'))return;
-    choose(e.clientX,e.clientY);
-  });
   map.addEventListener('touchstart',function(e){
-    if(e.touches.length!==1)return;
-    var t=e.touches[0],c=project(center.lat,center.lng,zoom);
-    drag={x:t.clientX,y:t.clientY,cx:c.x,cy:c.y,dx:0,dy:0};dragged=false;
-  },{passive:true});
-  map.addEventListener('touchmove',function(e){
-    if(!drag||e.touches.length!==1)return;
-    var t=e.touches[0];drag.dx=t.clientX-drag.x;drag.dy=t.clientY-drag.y;
-    if(Math.abs(drag.dx)+Math.abs(drag.dy)>6)dragged=true;
-    layer.style.transform='translate('+drag.dx+'px,'+drag.dy+'px)';
-    pin.style.marginLeft=drag.dx+'px';pin.style.marginTop=drag.dy+'px';
-  },{passive:true});
-  map.addEventListener('touchend',function(){
-    if(drag&&dragged){
-      var p=unproject(drag.cx-drag.dx,drag.cy-drag.dy,zoom);
-      center={lat:p.lat,lng:p.lng};
-      layer.style.transform='';pin.style.marginLeft='';pin.style.marginTop='';render();
+    if(e.touches.length!==2){
+      if(drag&&window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:false}));
+      drag=null;return;
     }
-    drag=null;
-  });
+    e.preventDefault();
+    e.stopPropagation();
+    var x=(e.touches[0].clientX+e.touches[1].clientX)/2;
+    var y=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    var c=project(center.lat,center.lng,zoom);
+    var rect=map.getBoundingClientRect();
+    var distance=touchDistance(e.touches);
+    drag={x:x,y:y,lastX:x,lastY:y,dx:0,dy:0,startZoom:zoom,nextZoom:zoom,startDistance:distance,
+      originX:x-rect.left,originY:y-rect.top,anchor:unproject(c.x+x-map.clientWidth/2,c.y+y-map.clientHeight/2,zoom)};
+    if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:true}));
+  },{passive:false,capture:true});
+  map.addEventListener('touchmove',function(e){
+    if(!drag||e.touches.length!==2)return;
+    e.preventDefault();
+    e.stopPropagation();
+    var x=(e.touches[0].clientX+e.touches[1].clientX)/2;
+    var y=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    drag.dx=x-drag.x;drag.dy=y-drag.y;
+    drag.lastX=x;drag.lastY=y;
+    var distance=touchDistance(e.touches);
+    var scale=distance>0&&drag.startDistance>0?distance/drag.startDistance:1;
+    drag.nextZoom=Math.max(3,Math.min(19,Math.round(drag.startZoom+Math.log(scale)/Math.LN2)));
+    var visualScale=Math.pow(2,drag.nextZoom-drag.startZoom);
+    layer.style.transformOrigin=drag.originX+'px '+drag.originY+'px';
+    layer.style.transform='translate('+drag.dx+'px,'+drag.dy+'px) scale('+visualScale+')';
+  },{passive:false,capture:true});
+  map.addEventListener('touchend',function(e){
+    if(drag&&e.touches.length<2){
+      e.preventDefault();
+      e.stopPropagation();
+      var moved=Math.abs(drag.dx)+Math.abs(drag.dy)>3;
+      var zoomed=drag.nextZoom!==drag.startZoom;
+      if(moved){
+        var p=unproject(project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom).x-drag.dx,
+          project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom).y-drag.dy,drag.nextZoom);
+        center={lat:Number(p.lat.toFixed(7)),lng:Number(p.lng.toFixed(7))};
+        selected={lat:center.lat,lng:center.lng};
+      }else if(zoomed){
+        var rect=map.getBoundingClientRect();
+        var lastX=drag.lastX-rect.left;
+        var lastY=drag.lastY-rect.top;
+        var anchorPoint=project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom);
+        var p=unproject(anchorPoint.x-(lastX-map.clientWidth/2),anchorPoint.y-(lastY-map.clientHeight/2),drag.nextZoom);
+        center={lat:Number(p.lat.toFixed(7)),lng:Number(p.lng.toFixed(7))};
+      }
+      zoom=drag.nextZoom;
+      layer.style.transform='';layer.style.transformOrigin='';render();
+      if((moved||zoomed)&&window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'location',latitude:center.lat,longitude:center.lng}));
+      if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:false}));
+      drag=null;
+    }
+  },{passive:false,capture:true});
+  map.addEventListener('touchcancel',function(){drag=null;layer.style.transform='';layer.style.transformOrigin='';render();if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:false}));});
   document.querySelector('.plus').addEventListener('click',function(e){e.stopPropagation();zoom=Math.min(19,zoom+1);render();});
   document.querySelector('.minus').addEventListener('click',function(e){e.stopPropagation();zoom=Math.max(3,zoom-1);render();});
   window.addEventListener('resize',render);

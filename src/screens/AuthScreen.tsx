@@ -266,7 +266,7 @@ export default function AuthScreen({
                 <Text style={styles.helperText}>After you finish the address and leave this field, RSSI sends it to Geoapify through the RSSI server to suggest a map pin. Review the suggestion and move the pin to your exact farm location.</Text>
                 {addressLookupMessage ? <Text style={styles.helperText}>{addressLookupMessage}</Text> : null}
                 <Text style={[styles.inputLabel, {marginTop: 14}]}>Choose your exact farm location</Text>
-                <Notice text="After you choose a barangay, RSSI will place a pin at your current location. Tap the map to move it to your farm." tone="info" />
+                <Notice text="After you choose a barangay, RSSI will place a pin at your current location. Use two fingers to move the map under the fixed center pin; touching the map will not drag the pin." tone="info" />
                 <LocationPicker value={coordinates} onChange={moveMapPin} />
                 {locationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
                 {locationMessage ? <Text style={styles.helperText}>{locationMessage}</Text> : null}

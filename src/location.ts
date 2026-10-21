@@ -3,14 +3,34 @@ import Geolocation from '@react-native-community/geolocation';
 
 export type FarmCoordinates = {latitude: number; longitude: number; accuracy?: number};
 
+function readCurrentPosition(options: {
+  enableHighAccuracy: boolean;
+  timeout: number;
+  maximumAge: number;
+}): Promise<FarmCoordinates> {
+  return new Promise((resolve, reject) => {
+    Geolocation.getCurrentPosition(
+      position => resolve({
+        latitude: Number(position.coords.latitude.toFixed(7)),
+        longitude: Number(position.coords.longitude.toFixed(7)),
+        accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined,
+      }),
+      error => reject(error),
+      {...options, distanceFilter: 0},
+    );
+  });
+}
+
 export async function captureFarmCoordinates(): Promise<FarmCoordinates> {
   if (Platform.OS === 'android') {
     const permissions = await PermissionsAndroid.requestMultiple([
       PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
       PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
     ]);
-    if (permissions[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] !== PermissionsAndroid.RESULTS.GRANTED) {
-      throw new Error('Precise location permission was not granted. Allow precise location in Settings, or place the pin manually on the map.');
+    const hasFineLocation = permissions[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
+    const hasCoarseLocation = permissions[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
+    if (!hasFineLocation && !hasCoarseLocation) {
+      throw new Error('Location permission was not granted. Allow location access in Settings, or place the pin manually on the map.');
     }
   }
 
@@ -20,15 +40,19 @@ export async function captureFarmCoordinates(): Promise<FarmCoordinates> {
     });
   }
 
-  return new Promise((resolve, reject) => {
-    Geolocation.getCurrentPosition(
-      position => resolve({
-        latitude: Number(position.coords.latitude.toFixed(7)),
-        longitude: Number(position.coords.longitude.toFixed(7)),
-        accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined,
-      }),
-      error => reject(new Error(error.message || 'Could not read your current location.')),
-      {enableHighAccuracy: true, timeout: 30000, maximumAge: 0, distanceFilter: 0},
-    );
-  });
+  try {
+    // A cached or network-based fix is usually much faster and works with
+    // Android's approximate-location permission. The pin remains draggable.
+    return await readCurrentPosition({enableHighAccuracy: false, timeout: 12000, maximumAge: 120000});
+  } catch {
+    try {
+      return await readCurrentPosition({enableHighAccuracy: true, timeout: 30000, maximumAge: 0});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (/timeout/i.test(message)) {
+        throw new Error('Could not get a location fix. Turn on Location and Wi-Fi, then try again outdoors, or place the pin manually on the map.');
+      }
+      throw new Error(message || 'Could not read your current location. Check that Location is turned on, or place the pin manually on the map.');
+    }
+  }
 }
