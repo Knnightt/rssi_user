@@ -36,6 +36,7 @@ export function Field(props: {
   keyboardType?: 'default' | 'email-address' | 'decimal-pad' | 'numeric' | 'url';
   multiline?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  onBlur?: () => void;
 }) {
   const {t} = useLanguage();
   return <View style={styles.fieldWrap}>
@@ -43,6 +44,7 @@ export function Field(props: {
     <TextInput
       value={props.value}
       onChangeText={props.onChangeText}
+      onBlur={props.onBlur}
       placeholder={props.placeholder ? t(props.placeholder) : undefined}
       placeholderTextColor="#98A5B8"
       secureTextEntry={props.secureTextEntry}

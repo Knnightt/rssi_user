@@ -62,6 +62,21 @@ export type AuthResponse = {
   properties?: FarmProperty[];
 };
 
+export type FarmAddressGeocodeRequest = {
+  address: string;
+  province: string;
+  municipality: string;
+  barangay: string;
+  country: 'Philippines';
+};
+
+export type FarmAddressGeocodeResult = {
+  latitude: number;
+  longitude: number;
+  formattedAddress: string;
+  confidence: number | null;
+};
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -122,6 +137,14 @@ export async function apiRequest<T>(
     throw new ApiError(0, 'server_unavailable', 'Could not reach the RSSI server. Your report is safe on this device.');
   }
   return decodeResponse<T>(response);
+}
+
+/** Requests a single address lookup through the RSSI API; provider credentials stay server-side. */
+export function geocodeFarmAddress(address: FarmAddressGeocodeRequest): Promise<FarmAddressGeocodeResult> {
+  return apiRequest<FarmAddressGeocodeResult>('/geocoding/farm-address', undefined, {
+    method: 'POST',
+    body: JSON.stringify(address),
+  });
 }
 
 export async function uploadPhotos(

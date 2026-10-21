@@ -44,7 +44,7 @@
 		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>RSSI uses your location only when you choose to save a precise pin for your own farm.</string>
+	<string>RSSI uses your current location to position your farm pin. It is sent with registration only if you enable precise-location consent.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo of your sugarcane field to attach to a report for SRA review.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

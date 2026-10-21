@@ -1,9 +1,11 @@
-import React, {useState} from 'react';
+import React, {useRef, useState} from 'react';
 import {KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {apiRequest, AuthResponse} from '../api';
+import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
+import {DropdownField} from '../components/DropdownField';
+import negrosLocations from '../data/negrosLocations.json';
 import {styles} from '../theme';
 import {RegisterFields} from '../types';
 import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ToggleLine} from '../components/UI';
@@ -33,6 +35,12 @@ export default function AuthScreen({
   const [preciseLocationConsent, setPreciseLocationConsent] = useState(false);
   const [coordinates, setCoordinates] = useState<FarmCoordinates | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
+  const [locationMessage, setLocationMessage] = useState('');
+  const [addressLookupBusy, setAddressLookupBusy] = useState(false);
+  const [addressLookupMessage, setAddressLookupMessage] = useState('');
+  const geocodedAddressKey = useRef('');
+  const addressLookupRevision = useRef(0);
+  const locationRequestRevision = useRef(0);
   const isRegistering = mode === 'register';
 
   const setField = (key: keyof RegisterFields, value: string) => {
@@ -40,19 +48,117 @@ export default function AuthScreen({
   };
 
   const captureLocation = async () => {
-    if (!preciseLocationConsent) {
-      setError('Choose to share your precise farm pin before using GPS.');
-      return;
-    }
+    const revision = ++locationRequestRevision.current;
     setLocationBusy(true);
-    setError('');
+    setLocationMessage('');
     try {
-      setCoordinates(await captureFarmCoordinates());
+      const currentLocation = await captureFarmCoordinates();
+      if (revision === locationRequestRevision.current) setCoordinates(currentLocation);
     } catch (locationError) {
-      setError(locationError instanceof Error ? locationError.message : 'Could not read the farm location.');
+      if (revision === locationRequestRevision.current) {
+        setLocationMessage(locationError instanceof Error ? locationError.message : 'Could not read the farm location.');
+      }
     } finally {
-      setLocationBusy(false);
+      if (revision === locationRequestRevision.current) setLocationBusy(false);
     }
+  };
+
+  const moveMapPin = (value: FarmCoordinates) => {
+    locationRequestRevision.current += 1;
+    setLocationBusy(false);
+    setCoordinates(value);
+    if (addressLookupMessage.startsWith('Suggested map match:')) {
+      setAddressLookupMessage('Pin moved. Check that it marks your exact farm location.');
+    }
+  };
+
+  const locateEnteredAddress = async () => {
+    const address = fields.address.trim();
+    if (!address || !fields.municipality || !fields.barangay) return;
+    const lookupKey = [address, fields.province, fields.municipality, fields.barangay].join('|').toLocaleLowerCase();
+    if (geocodedAddressKey.current === lookupKey) return;
+
+    const revision = ++addressLookupRevision.current;
+    setAddressLookupBusy(true);
+    setAddressLookupMessage('Looking up this farm address…');
+    try {
+      const result = await geocodeFarmAddress({
+        address,
+        province: fields.province,
+        municipality: fields.municipality,
+        barangay: fields.barangay,
+        country: 'Philippines',
+      });
+      if (revision !== addressLookupRevision.current) return;
+      if (!Number.isFinite(result.latitude) || !Number.isFinite(result.longitude)) {
+        throw new Error('Could not find this address. Move the pin on the map instead.');
+      }
+      geocodedAddressKey.current = lookupKey;
+      setCoordinates({latitude: result.latitude, longitude: result.longitude});
+      setAddressLookupMessage(result.formattedAddress
+        ? `Suggested map match: ${result.formattedAddress}. Check the pin and move it if needed.`
+        : 'Address found. Check the pin and move it to your exact farm location.');
+    } catch (lookupError) {
+      if (revision !== addressLookupRevision.current) return;
+      const message = lookupError instanceof ApiError && (lookupError.status === 404 || lookupError.status === 501)
+        ? 'Address lookup is not available on the RSSI server yet. Move the pin on the map instead.'
+        : lookupError instanceof ApiError && lookupError.status === 422
+          ? 'Could not find this address. Move the pin on the map instead.'
+          : 'Address lookup could not be completed. Move the pin on the map instead.';
+      setAddressLookupMessage(message);
+    } finally {
+      if (revision === addressLookupRevision.current) setAddressLookupBusy(false);
+    }
+  };
+
+  const changeAddress = (address: string) => {
+    addressLookupRevision.current += 1;
+    locationRequestRevision.current += 1;
+    geocodedAddressKey.current = '';
+    setField('address', address);
+    setCoordinates(null);
+    setAddressLookupBusy(false);
+    setLocationBusy(false);
+    setAddressLookupMessage('');
+  };
+
+  const municipalityOptions = negrosLocations[fields.province as keyof typeof negrosLocations] || [];
+  const selectedMunicipality = municipalityOptions.find(item => item.name === fields.municipality);
+  const barangayOptions = selectedMunicipality?.barangays || [];
+
+  const selectProvince = (province: string) => {
+    addressLookupRevision.current += 1;
+    locationRequestRevision.current += 1;
+    geocodedAddressKey.current = '';
+    setFields(current => ({...current, province, municipality: '', barangay: ''}));
+    setCoordinates(null);
+    setLocationMessage('');
+    setAddressLookupMessage('');
+    setAddressLookupBusy(false);
+    setLocationBusy(false);
+  };
+
+  const selectMunicipality = (municipality: string) => {
+    addressLookupRevision.current += 1;
+    locationRequestRevision.current += 1;
+    geocodedAddressKey.current = '';
+    setFields(current => ({...current, municipality, barangay: ''}));
+    setCoordinates(null);
+    setLocationMessage('');
+    setAddressLookupMessage('');
+    setAddressLookupBusy(false);
+    setLocationBusy(false);
+  };
+
+  const selectBarangay = (barangay: string) => {
+    addressLookupRevision.current += 1;
+    geocodedAddressKey.current = '';
+    setAddressLookupBusy(false);
+    setAddressLookupMessage('');
+    setField('barangay', barangay);
+    setCoordinates(null);
+    setLocationMessage('');
+    void captureLocation();
   };
 
   const submit = async () => {
@@ -63,8 +169,8 @@ export default function AuthScreen({
       return;
     }
     const farmArea = Number(fields.sizeHectares);
-    if (isRegistering && (!fields.name.trim() || !fields.propertyName.trim() || !fields.municipality.trim() || !fields.sizeHectares.trim() || !Number.isFinite(farmArea) || farmArea <= 0 || !consent)) {
-      setError('Add your name, farm, municipality, farm area greater than zero and reporting consent.');
+    if (isRegistering && (!fields.name.trim() || !fields.propertyName.trim() || !fields.municipality.trim() || !fields.barangay.trim() || !fields.address.trim() || !fields.sizeHectares.trim() || !Number.isFinite(farmArea) || farmArea <= 0 || !consent)) {
+      setError('Add your name, farm, municipality, barangay, complete farm address, farm area greater than zero and reporting consent.');
       return;
     }
     if (isRegistering && currentPassword.length < 10) {
@@ -88,8 +194,8 @@ export default function AuthScreen({
             barangay: fields.barangay || null,
             address: fields.address.trim() || null,
             sizeHectares: fields.sizeHectares ? Number(fields.sizeHectares) : null,
-            latitude: coordinates?.latitude ?? null,
-            longitude: coordinates?.longitude ?? null,
+            latitude: preciseLocationConsent ? coordinates?.latitude ?? null : null,
+            longitude: preciseLocationConsent ? coordinates?.longitude ?? null : null,
             locationConsent: preciseLocationConsent,
           }),
         })
@@ -136,34 +242,42 @@ export default function AuthScreen({
                     <Text style={styles.inputLabel}>Province</Text>
                     <View style={styles.choiceRow}>
                       {['Negros Oriental', 'Negros Occidental'].map(province => (
-                        <Choice key={province} label={province === 'Negros Oriental' ? 'Oriental' : 'Occidental'} active={fields.province === province} onPress={() => setField('province', province)} compact />
+                        <Choice key={province} label={province === 'Negros Oriental' ? 'Oriental' : 'Occidental'} active={fields.province === province} onPress={() => selectProvince(province)} compact />
                       ))}
                     </View>
                   </View>
                 </View>
-                <Field label="Municipality / city *" value={fields.municipality} onChangeText={value => setField('municipality', value)} placeholder="Select your municipality or city" autoCapitalize="words" />
+                <DropdownField
+                  label="Municipality / city *"
+                  value={fields.municipality}
+                  options={municipalityOptions.map(item => item.name)}
+                  placeholder="Select your municipality or city"
+                  onSelect={selectMunicipality}
+                />
                 <View style={styles.fieldRow}>
-                  <View style={styles.fieldGrow}><Field label="Barangay (optional)" value={fields.barangay} onChangeText={value => setField('barangay', value)} placeholder="Select barangay" autoCapitalize="words" /></View>
+                  <View style={styles.fieldGrow}><DropdownField label="Barangay *" value={fields.barangay} options={barangayOptions} placeholder={fields.municipality ? 'Select your barangay' : 'Select a municipality first'} disabled={!fields.municipality} onSelect={selectBarangay} /></View>
                   <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" /></View>
                 </View>
-                <Field label="Complete farm address" value={fields.address} onChangeText={value => setField('address', value)} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
-                <Text style={styles.helperText}>Required to size your farm circle on the map. An exact GPS pin is optional and needs your consent.</Text>
-                <Text style={styles.inputLabel}>Pinned location</Text>
-                <Text style={styles.helperText}>Save a pin only if you want authorized SRA staff to see your farm’s precise location.</Text>
+                <Field label="Complete farm address *" value={fields.address} onChangeText={changeAddress} onBlur={() => void locateEnteredAddress()} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
+                <Text style={styles.helperText}>After you finish the address and leave this field, RSSI sends it to Geoapify through the RSSI server to suggest a map pin. Review the suggestion and move the pin to your exact farm location.</Text>
+                {addressLookupMessage ? <Text style={styles.helperText}>{addressLookupMessage}</Text> : null}
+                <Text style={[styles.inputLabel, {marginTop: 14}]}>Choose your exact farm location</Text>
+                <Notice text="After you choose a barangay, RSSI will place a pin at your current location. Tap the map to move it to your farm." tone="info" />
+                <LocationPicker value={coordinates} onChange={moveMapPin} />
+                {locationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
+                {locationMessage ? <Text style={styles.helperText}>{locationMessage}</Text> : null}
+                {coordinates ? <View style={{marginTop: 4}}>
+                  <Text style={styles.coordinatesText}>Selected farm pin</Text>
+                  <Text style={styles.coordinatesText}>{coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
+                </View> : null}
+                <Text style={styles.helperText}>Map tiles require an internet connection.</Text>
                 <ToggleLine
-                  title="Save an exact GPS pin for my farm (optional)"
-                  description="Only you and authorized SRA staff can view it. The pin is not shared with community posts."
+                  title="Save this precise farm location (optional)"
+                  description="Your pin is sent with registration only when you consent. Otherwise it is used only to position the map on this screen."
                   value={preciseLocationConsent}
-                  onValueChange={value => {setPreciseLocationConsent(value); if (!value) {setCoordinates(null);}}}
+                  onValueChange={setPreciseLocationConsent}
                 />
-                {preciseLocationConsent ? <>
-                  <Text style={styles.helperText}>Choose your farm location on the map. Tap to place or move the pin. Map tiles need internet.</Text>
-                  <LocationPicker value={coordinates} onChange={setCoordinates} />
-                  <Button label={locationBusy ? 'Getting location…' : coordinates ? 'Farm pin selected' : 'Get GPS location'} kind="light" onPress={() => void captureLocation()} disabled={locationBusy} loading={locationBusy} />
-                </> : null}
-                {coordinates ? <>
-                  <Text style={styles.coordinatesText}>Pinned location · {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
-                </> : null}
+                {fields.barangay ? <Button label={locationBusy ? 'Getting location…' : 'Use my current location'} kind="light" onPress={() => void captureLocation()} disabled={locationBusy} loading={locationBusy} /> : null}
                 <Field label="Email address" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
                 <Field label="Password (10 characters minimum)" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry />
                 <ToggleLine
@@ -179,7 +293,7 @@ export default function AuthScreen({
                 <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry />
               </>
             )}
-            <Button label={busy ? 'Connecting…' : isRegistering ? 'Register' : 'Sign in'} onPress={submit} disabled={busy} loading={busy} />
+            <Button label={busy ? 'Connecting…' : isRegistering ? 'Register' : 'Sign in'} onPress={submit} disabled={busy || addressLookupBusy} loading={busy || addressLookupBusy} />
             <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); setError('');}}>
               <Text style={styles.linkText}>{isRegistering ? 'Already registered? Sign in' : 'New to RSSI? Register your farm'}</Text>
             </TouchableOpacity>

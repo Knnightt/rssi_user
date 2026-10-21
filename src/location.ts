@@ -7,7 +7,7 @@ export async function captureFarmCoordinates(): Promise<FarmCoordinates> {
   if (Platform.OS === 'android') {
     const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, {
       title: 'Use your farm location',
-      message: 'RSSI uses your location only when you choose to save a precise pin for your own farm.',
+      message: 'Your current location is used to position the farm pin. It is sent with your registration only if you turn on precise-location consent.',
       buttonPositive: 'Allow once',
       buttonNegative: 'Not now',
     });
