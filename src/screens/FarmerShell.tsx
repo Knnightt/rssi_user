@@ -50,6 +50,7 @@ export default function FarmerShell(props: {
   const [farmLocationConsent, setFarmLocationConsent] = useState(false);
   const [farmCoordinates, setFarmCoordinates] = useState<FarmCoordinates | null>(null);
   const [farmLocationBusy, setFarmLocationBusy] = useState(false);
+  const [locationEditProperty, setLocationEditProperty] = useState<FarmProperty | null>(null);
   const [selectedFarm, setSelectedFarm] = useState<number | null>(properties[0]?.id ?? null);
   const [observedAt, setObservedAt] = useState(localDate());
   const [observations, setObservations] = useState('');
@@ -153,6 +154,10 @@ export default function FarmerShell(props: {
       setFarmMessage('Enter a farm name, municipality and farm area greater than zero.');
       return;
     }
+    if (farmLocationConsent && !farmCoordinates) {
+      setFarmMessage(t('Choose a point on the map or use current location before saving consent.'));
+      return;
+    }
     setFarmBusy(true);
     setFarmMessage('');
     try {
@@ -175,10 +180,49 @@ export default function FarmerShell(props: {
       setFarmMessage('Farm added to your account.');
       setFarmLocationConsent(false);
       setFarmCoordinates(null);
-      await props.onRefresh();
+      await props.onRefresh().catch(() => undefined);
       setSelectedFarm(response.data.id);
     } catch (error) {
       setFarmMessage(error instanceof Error ? error.message : 'Could not save the farm.');
+    } finally {
+      setFarmBusy(false);
+    }
+  };
+
+  const openFarmLocationEditor = (property: FarmProperty) => {
+    setFarmForm(false);
+    setFarmMessage('');
+    setLocationEditProperty(property);
+    setFarmLocationConsent(property.location_consent);
+    setFarmCoordinates(property.location_consent && property.latitude !== null && property.longitude !== null
+      ? {latitude: Number(property.latitude), longitude: Number(property.longitude)}
+      : null);
+  };
+
+  const saveFarmLocation = async () => {
+    if (!locationEditProperty) return;
+    if (farmLocationConsent && !farmCoordinates) {
+      setFarmMessage(t('Choose a point on the map or use current location before saving consent.'));
+      return;
+    }
+    setFarmBusy(true);
+    setFarmMessage('');
+    try {
+      await apiRequest<{data: FarmProperty}>(`/farmers/me/properties/${locationEditProperty.id}/location`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          latitude: farmCoordinates?.latitude ?? null,
+          longitude: farmCoordinates?.longitude ?? null,
+          locationConsent: farmLocationConsent,
+        }),
+      });
+      setLocationEditProperty(null);
+      setFarmCoordinates(null);
+      setFarmLocationConsent(false);
+      setFarmMessage(farmLocationConsent ? 'Farm location updated.' : 'Farm pin removed from SRA Map Monitoring.');
+      await props.onRefresh().catch(() => undefined);
+    } catch (error) {
+      setFarmMessage(error instanceof Error ? error.message : 'Could not update the farm location.');
     } finally {
       setFarmBusy(false);
     }
@@ -269,10 +313,33 @@ export default function FarmerShell(props: {
 
   const createFarmForm = () => (
     <Card>
-      <Text style={styles.cardTitle}>{farmForm ? 'Add a farm' : 'Your farms'}</Text>
-      <Text style={styles.cardSub}>{farmForm ? 'Add a farm you own or manage. Exact coordinates are not required.' : 'Only farms in your account are shown here.'}</Text>
-      {farmMessage ? <Notice text={farmMessage} tone={farmMessage.includes('added') ? 'success' : 'error'} /> : null}
-      {farmForm ? (
+      <Text style={styles.cardTitle}>{locationEditProperty ? t('Update farm location') : farmForm ? t('Add a farm') : t('Your farms')}</Text>
+      <Text style={styles.cardSub}>{locationEditProperty ? locationEditProperty.name : farmForm ? t('Add a farm you own or manage. Exact coordinates are not required.') : t('Only farms in your account are shown here.')}</Text>
+      {farmMessage ? <Notice text={farmMessage} tone={farmMessage.includes('added') || farmMessage.includes('updated') || farmMessage.includes('removed') ? 'success' : 'error'} /> : null}
+      {locationEditProperty ? (
+        <>
+          <ToggleLine
+            title={t('Show this farm in SRA Map Monitoring')}
+            description={t('Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.')}
+            value={farmLocationConsent}
+            onValueChange={value => {setFarmLocationConsent(value); if (!value) setFarmCoordinates(null);}}
+          />
+          {farmLocationConsent ? <>
+            <Text style={styles.helperText}>{t('Choose your exact farm location on the map. Tap to place or move the pin. Map tiles need internet.')}</Text>
+            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} />
+            <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
+              setFarmLocationBusy(true);
+              void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : t('Could not read location.'))).finally(() => setFarmLocationBusy(false));
+            }} />
+            {farmCoordinates ? <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text> : <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text>}
+          </> : <Text style={styles.helperText}>{t('Save this change to remove the exact pin from SRA Map Monitoring.')}</Text>}
+          {!networkConnected ? <Text style={styles.helperText}>{t('Adding a farm needs a connection. You can still save reports about farms already on your account.')}</Text> : null}
+          <View style={styles.buttonRow}>
+            <Button label={t('Cancel')} kind="light" onPress={() => {setLocationEditProperty(null); setFarmCoordinates(null); setFarmLocationConsent(false); setFarmMessage('');}} />
+            <Button label={farmBusy ? t('Saving location…') : t('Save location')} onPress={saveFarmLocation} disabled={!networkConnected || farmBusy || (farmLocationConsent && !farmCoordinates)} loading={farmBusy} />
+          </View>
+        </>
+      ) : farmForm ? (
         <>
           <Field label="Farm name" value={farmValues.name} onChangeText={value => setFarmValues(current => ({...current, name: value}))} placeholder="Your farm name" autoCapitalize="words" />
           <Text style={styles.inputLabel}>Province</Text>
@@ -287,8 +354,8 @@ export default function FarmerShell(props: {
           <Field label="Farm area (hectares) *" value={farmValues.size} onChangeText={value => setFarmValues(current => ({...current, size: value.replace(/[^0-9.]/g, '')}))} placeholder="0.00" keyboardType="decimal-pad" />
           <Text style={styles.helperText}>Required to size your farm circle on the map.</Text>
           <ToggleLine
-            title="Save an exact GPS pin for my farm (optional)"
-            description="Your exact pin is visible only to you and authorized SRA staff."
+            title={t('Show this farm in SRA Map Monitoring')}
+            description={t('Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.')}
             value={farmLocationConsent}
             onValueChange={value => {setFarmLocationConsent(value); if (!value) {setFarmCoordinates(null);}}}
           />
@@ -300,18 +367,24 @@ export default function FarmerShell(props: {
             void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : 'Could not read location.')).finally(() => setFarmLocationBusy(false));
           }} />
           {farmCoordinates ? <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text> : null}
+          {!farmCoordinates ? <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text> : null}
           </> : null}
           {!networkConnected ? <Text style={styles.helperText}>Adding a farm needs a connection. You can still save reports about farms already on your account.</Text> : null}
           <View style={styles.buttonRow}>
             <Button label="Cancel" kind="light" onPress={() => {setFarmForm(false); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
-            <Button label="Save farm" onPress={saveFarm} disabled={!networkConnected || farmBusy} loading={farmBusy} />
+            <Button label={t('Save farm')} onPress={saveFarm} disabled={!networkConnected || farmBusy || (farmLocationConsent && !farmCoordinates)} loading={farmBusy} />
           </View>
         </>
       ) : (
         <>
           {properties.length === 0 ? <EmptyState icon="⌖" title="No farms added yet" description="Add your farm to start reporting field observations." /> : null}
-          {properties.map(property => <FarmRow key={property.id} property={property} onPress={() => setSelectedFarm(property.id)} selected={selectedFarm === property.id} />)}
-          <Button label="＋  Add a farm" kind="light" onPress={() => {setFarmForm(true); setFarmMessage(''); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
+          {properties.map(property => <View key={property.id}>
+            <FarmRow property={property} onPress={() => setSelectedFarm(property.id)} selected={selectedFarm === property.id} />
+            <TouchableOpacity style={{alignSelf: 'flex-end', paddingVertical: 7, paddingHorizontal: 10}} onPress={() => openFarmLocationEditor(property)} accessibilityRole="button">
+              <Text style={styles.linkText}>{t('Set or edit map pin')} →</Text>
+            </TouchableOpacity>
+          </View>)}
+          <Button label="＋  Add a farm" kind="light" onPress={() => {setLocationEditProperty(null); setFarmForm(true); setFarmMessage(''); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
         </>
       )}
     </Card>

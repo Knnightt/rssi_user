@@ -177,6 +177,10 @@ export default function AuthScreen({
       setError('Choose a password with at least 10 characters.');
       return;
     }
+    if (isRegistering && preciseLocationConsent && !coordinates) {
+      setError('Choose a point on the map or use current location before saving consent.');
+      return;
+    }
     setBusy(true);
     setError('');
     onMessage('');
@@ -272,11 +276,12 @@ export default function AuthScreen({
                 </View> : null}
                 <Text style={styles.helperText}>Map tiles require an internet connection.</Text>
                 <ToggleLine
-                  title="Save this precise farm location (optional)"
-                  description="Your pin is sent with registration only when you consent. Otherwise it is used only to position the map on this screen."
+                  title="Show this farm in SRA Map Monitoring"
+                  description="Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private."
                   value={preciseLocationConsent}
                   onValueChange={setPreciseLocationConsent}
                 />
+                {preciseLocationConsent && !coordinates ? <Text style={styles.helperText}>Choose a point on the map or use current location before saving consent.</Text> : null}
                 {fields.barangay ? <Button label={locationBusy ? 'Getting location…' : 'Use my current location'} kind="light" onPress={() => void captureLocation()} disabled={locationBusy} loading={locationBusy} /> : null}
                 <Field label="Email address" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
                 <Field label="Password (10 characters minimum)" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry />
