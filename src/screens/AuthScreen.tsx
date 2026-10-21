@@ -1,14 +1,15 @@
 import React, {useRef, useState} from 'react';
 import {KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from 'react-native';
+import {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress} from '../api';
+import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, uploadProfilePhoto} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {DropdownField} from '../components/DropdownField';
 import negrosLocations from '../data/negrosLocations.json';
 import {styles} from '../theme';
 import {RegisterFields} from '../types';
-import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ToggleLine} from '../components/UI';
+import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ProfilePhotoPicker, ToggleLine} from '../components/UI';
 import {LocalizedText as Text} from '../i18n';
 import {useTheme} from '../theme';
 
@@ -29,6 +30,7 @@ export default function AuthScreen({
     name: '', email: '', password: '', propertyName: '', province: 'Negros Oriental',
     municipality: '', barangay: '', address: '', sizeHectares: '',
   });
+  const [profilePhoto, setProfilePhoto] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialMessage);
   const [consent, setConsent] = useState(false);
@@ -207,7 +209,17 @@ export default function AuthScreen({
           method: 'POST',
           body: JSON.stringify({accountType: 'farmer', email: email.trim().toLowerCase(), password}),
         });
+      let photoUploadFailed = false;
+      if (isRegistering && profilePhoto) {
+        try {
+          const uploaded = await uploadProfilePhoto(response.access_token, profilePhoto);
+          response.user.profile_photo_url = uploaded.profile_photo_url;
+        } catch {
+          photoUploadFailed = true;
+        }
+      }
       await onAuthenticated(response);
+      if (photoUploadFailed) onMessage('Your account was created, but the profile picture was not uploaded. You can add it later in My profile.');
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not sign in right now.');
     } finally {
@@ -240,6 +252,7 @@ export default function AuthScreen({
             {isRegistering ? (
               <>
                 <Field label="Farmer name *" value={fields.name} onChangeText={value => setField('name', value)} placeholder="Enter your full name" autoCapitalize="words" />
+                <ProfilePhotoPicker name={fields.name} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={busy} />
                 <Field label="Farm / plot location *" value={fields.propertyName} onChangeText={value => setField('propertyName', value)} placeholder="Farm name or landmark" autoCapitalize="words" />
                 <View style={styles.fieldRow}>
                   <View style={styles.fieldGrow}>

@@ -126,6 +126,17 @@ function RSSIApp() {
     }
   }, [token, user]);
 
+  const updateFarmerPhoto = useCallback(async (profilePhotoUrl: string | null) => {
+    if (!user) return;
+    const updatedUser = {...user, profile_photo_url: profilePhotoUrl};
+    setUser(updatedUser);
+    await writeSecureJson('session-user', updatedUser);
+    const cache = await readCache(user.id);
+    if (cache) {
+      await writeCache(user.id, {...cache, user: updatedUser, refreshedAt: new Date().toISOString()});
+    }
+  }, [user]);
+
   const refreshFromServer = useCallback(async () => {
     if (!token || !userId) {
       return;
@@ -332,6 +343,7 @@ function RSSIApp() {
       onLoadCommunity={loadCommunity}
       onSignOut={signOut}
       onUpdateFarmerName={updateFarmerName}
+      onProfilePhotoUpdated={updateFarmerPhoto}
       onCommunityConfirmed={async id => {
         try {
           const result = await apiRequest<{confirmation_count: number; confirmed_by_me: boolean}>(

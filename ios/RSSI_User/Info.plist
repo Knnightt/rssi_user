@@ -48,7 +48,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo of your sugarcane field to attach to a report for SRA review.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Select sugarcane field photos to attach to a report for SRA review.</string>
+	<string>Select a profile picture or sugarcane field photos to share with SRA.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your organization’s RSSI server when it is hosted on your local network.</string>
 	<key>UILaunchStoryboardName</key>

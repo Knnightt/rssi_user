@@ -1,4 +1,5 @@
 import {API_PREFIX, getConfiguredApiBaseUrl} from './config';
+import type {Asset} from 'react-native-image-picker';
 
 export type Farmer = {
   id: number;
@@ -6,6 +7,7 @@ export type Farmer = {
   name: string;
   email: string;
   status: string;
+  profile_photo_url?: string | null;
 };
 
 export type FarmProperty = {
@@ -183,6 +185,41 @@ export async function apiRequest<T>(
     throw new ApiError(0, 'server_unavailable', 'Could not reach the RSSI server. Your report is safe on this device.');
   }
   return decodeResponse<T>(response);
+}
+
+/** Build the server URL for an authenticated profile photo returned by the API. */
+export function getProfilePhotoUri(photoUrl?: string | null): string | undefined {
+  if (!photoUrl) return undefined;
+  if (/^https?:\/\//i.test(photoUrl)) return photoUrl;
+  const baseUrl = getConfiguredApiBaseUrl().replace(/\/+$/, '');
+  return `${baseUrl}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`;
+}
+
+/** Upload a farmer profile photo using the authenticated profile-photo endpoint. */
+export async function uploadProfilePhoto(token: string, photo: Asset): Promise<{profile_photo_url: string | null}> {
+  if (!photo.uri) throw new ApiError(422, 'invalid_profile_photo', 'Choose a profile photo and try again.');
+  const form = new FormData();
+  form.append('photo', {
+    uri: photo.uri,
+    name: photo.fileName || `rssi-profile-${Date.now()}.jpg`,
+    type: photo.type || 'image/jpeg',
+  } as unknown as Blob);
+  const headers = new Headers({
+    Accept: 'application/json',
+    Authorization: `Bearer ${token}`,
+    'ngrok-skip-browser-warning': 'true',
+  });
+  let response: Response;
+  try {
+    response = await fetch(`${getConfiguredApiBaseUrl()}${API_PREFIX}/me/profile-photo`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+  } catch {
+    throw new ApiError(0, 'server_unavailable', 'Could not reach the RSSI server to upload your profile photo.');
+  }
+  return decodeResponse<{profile_photo_url: string | null}>(response);
 }
 
 /** Requests a single address lookup through the RSSI API; provider credentials stay server-side. */

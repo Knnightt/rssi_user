@@ -1,7 +1,8 @@
 import React from 'react';
 import {ActivityIndicator, Image, Switch, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
+import {Asset, launchImageLibrary} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {CommunityUpdate, FarmProperty, FieldReport} from '../api';
+import {CommunityUpdate, FarmProperty, FieldReport, getProfilePhotoUri} from '../api';
 import {Language, LocalizedText as Text, useLanguage} from '../i18n';
 import {QueuedReport} from '../reportQueue';
 import {C, styles, ThemeMode, useTheme} from '../theme';
@@ -182,8 +183,67 @@ export function InfoRow({label, value, compact = false, translateValue = false}:
   return <View style={[styles.infoRow, compact && styles.infoRowCompact]}><Text style={styles.infoLabel}>{t(label)}</Text>{translateValue ? <Text style={styles.infoValue}>{t(value)}</Text> : <NativeText style={styles.infoValue}>{value}</NativeText>}</View>;
 }
 
-export function Avatar({name}: {name: string}) {
-  return <View style={styles.avatar}><Text style={styles.avatarText}>{name.trim().charAt(0).toUpperCase()}</Text></View>;
+export function Avatar({name, photoUrl, localUri, token, size = 48}: {
+  name: string;
+  photoUrl?: string | null;
+  localUri?: string | null;
+  token?: string | null;
+  size?: number;
+}) {
+  const remoteUri = getProfilePhotoUri(photoUrl);
+  const uri = localUri || remoteUri;
+  return <View style={[styles.avatar, {width: size, height: size, borderRadius: size / 2}]}>
+    {uri ? <Image source={{uri, ...(remoteUri && !localUri && token ? {headers: {Authorization: `Bearer ${token}`}} : {})}} resizeMode="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, {fontSize: Math.max(13, Math.round(size * 0.42))}]}>{name.trim().charAt(0).toUpperCase()}</Text>}
+  </View>;
+}
+
+export function ProfilePhotoPicker({name, photoUrl, token, selectedPhoto, onSelect, disabled = false}: {
+  name: string;
+  photoUrl?: string | null;
+  token?: string | null;
+  selectedPhoto: Asset | null;
+  onSelect: (photo: Asset) => void;
+  disabled?: boolean;
+}) {
+  const {t} = useLanguage();
+  const [error, setError] = React.useState('');
+
+  const choosePhoto = async () => {
+    setError('');
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        selectionLimit: 1,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 0.8,
+        assetRepresentationMode: 'compatible',
+      });
+      if (result.didCancel) return;
+      if (result.errorCode) {
+        setError(t('Could not select that profile photo. Try another image.'));
+        return;
+      }
+      const photo = result.assets?.[0];
+      if (!photo?.uri || (typeof photo.fileSize === 'number' && photo.fileSize > 5 * 1024 * 1024)) {
+        setError(t(photo?.uri ? 'Profile photos must be 5 MB or smaller.' : 'Choose a profile photo and try again.'));
+        return;
+      }
+      onSelect(photo);
+    } catch {
+      setError(t('Could not select that profile photo. Try another image.'));
+    }
+  };
+
+  return <View style={styles.profilePhotoField}>
+    <Avatar name={name} photoUrl={photoUrl} localUri={selectedPhoto?.uri} token={token} size={72} />
+    <View style={styles.flex}>
+      <Text style={styles.inputLabel}>Profile picture (optional)</Text>
+      <Text style={styles.helperText}>Use a clear photo so your SRA team can recognize your account.</Text>
+      <Button label={selectedPhoto || photoUrl ? 'Change profile picture' : 'Choose profile picture'} onPress={choosePhoto} disabled={disabled} kind="light" />
+      {error ? <Text style={styles.queueError}>{error}</Text> : null}
+    </View>
+  </View>;
 }
 
 export function NavButton({icon, label, active, onPress, badge = 0}: {icon: string; label: string; active: boolean; onPress: () => void; badge?: number}) {

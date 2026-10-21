@@ -2,8 +2,9 @@ import React, {useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, Image, Platform, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
+import type {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, reverseGeocodeFarmLocation} from '../api';
+import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {DropdownField} from '../components/DropdownField';
@@ -11,7 +12,7 @@ import negrosLocations from '../data/negrosLocations.json';
 import {createId, QueuedPhoto, QueuedReport, storePhoto} from '../reportQueue';
 import {C, styles, useTheme} from '../theme';
 import {Tab} from '../types';
-import {Avatar, BrandMark, Button, Card, Choice, CommunityCard, EmptyState, FarmRow, Field, InfoRow, LanguageSwitcher, NavButton, Notice, PageIntro, Pill, PrivacyNote, QueuedReportRow, ReportRow, SeverityBadge, SummaryCard, ThemeSwitcher, ToggleLine} from '../components/UI';
+import {Avatar, BrandMark, Button, Card, Choice, CommunityCard, EmptyState, FarmRow, Field, InfoRow, LanguageSwitcher, NavButton, Notice, PageIntro, Pill, PrivacyNote, ProfilePhotoPicker, QueuedReportRow, ReportRow, SeverityBadge, SummaryCard, ThemeSwitcher, ToggleLine} from '../components/UI';
 import {LocalizedText as Text, useLanguage} from '../i18n';
 
 export default function FarmerShell(props: {
@@ -36,13 +37,14 @@ export default function FarmerShell(props: {
   onLoadCommunity: () => Promise<void>;
   onSignOut: () => Promise<void>;
   onUpdateFarmerName: (name: string) => Promise<void>;
+  onProfilePhotoUpdated: (profilePhotoUrl: string | null) => Promise<void>;
   onCommunityConfirmed: (id: number) => Promise<void>;
 }) {
   useTheme();
-  const {language, t} = useLanguage();
+  const {t} = useLanguage();
   const {
     user, properties, reports, queue, community, tab, setTab,
-    hasInternet, networkConnected, serverReachable, busy, notice, clearNotice, onMessage, token,
+    networkConnected, serverReachable, busy, notice, clearNotice, onMessage, token,
   } = props;
   const [farmForm, setFarmForm] = useState(false);
   const [farmBusy, setFarmBusy] = useState(false);
@@ -73,6 +75,7 @@ export default function FarmerShell(props: {
   const [selectedReport, setSelectedReport] = useState<FieldReport | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileName, setProfileName] = useState(user.name);
+  const [profilePhoto, setProfilePhoto] = useState<Asset | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
 
@@ -137,7 +140,12 @@ export default function FarmerShell(props: {
     setProfileBusy(true);
     setProfileMessage('');
     try {
-      await props.onUpdateFarmerName(trimmed);
+      if (trimmed !== user.name) await props.onUpdateFarmerName(trimmed);
+      if (profilePhoto) {
+        const uploaded = await uploadProfilePhoto(token, profilePhoto);
+        await props.onProfilePhotoUpdated(uploaded.profile_photo_url);
+        setProfilePhoto(null);
+      }
       setProfileEditing(false);
       setProfileMessage('Your profile was updated.');
     } catch (error) {
@@ -572,7 +580,7 @@ export default function FarmerShell(props: {
               {queue.length > 0 ? <Button label={busy ? 'Syncing reports…' : `Sync ${queue.length} waiting report${queue.length === 1 ? '' : 's'}`} onPress={props.onSync} disabled={!networkConnected || busy} loading={busy} kind="light" /> : null}
             </Card>
             <TouchableOpacity style={styles.profileShortcut} onPress={() => setTab('profile')} accessibilityRole="button">
-              <View style={styles.profileShortcutIcon}><Avatar name={user.name} /></View>
+              <View style={styles.profileShortcutIcon}><Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} size={38} /></View>
               <View style={styles.flex}><Text style={styles.profileShortcutTitle}>My profile</Text><Text style={styles.profileShortcutSub}>View and edit your account information</Text></View>
               <Text style={styles.quickArrow}>›</Text>
             </TouchableOpacity>
@@ -803,13 +811,14 @@ export default function FarmerShell(props: {
             <PageIntro eyebrow="ACCOUNT & PRIVACY" title="My profile" subtitle="Update your account information and default farm details." />
             <Card>
               <Text style={styles.cardTitle}>Personal information</Text>
-              <View style={[styles.profileHeader, {marginTop: 12}]}><Avatar name={user.name} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
+              <View style={[styles.profileHeader, {marginTop: 12}]}><Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
               {profileEditing ? <>
                 <Field label="Full name" value={profileName} onChangeText={setProfileName} placeholder="Your name" autoCapitalize="words" />
+                <ProfilePhotoPicker name={profileName || user.name} photoUrl={user.profile_photo_url} token={token} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={profileBusy} />
                 <Text style={styles.readOnlyFieldLabel}>Email address</Text><Text style={styles.readOnlyField}>{user.email}</Text>
                 <Text style={styles.helperText}>Email changes are managed by your SRA administrator.</Text>
-                <View style={styles.buttonRow}><Button label="Cancel" kind="light" onPress={() => {setProfileEditing(false); setProfileName(user.name); setProfileMessage('');}} /><Button label={profileBusy ? 'Saving…' : 'Save changes'} onPress={() => void saveProfileName()} disabled={profileBusy} loading={profileBusy} /></View>
-              </> : <Button label="Edit profile" kind="light" onPress={() => {setProfileMessage(''); setProfileEditing(true);}} />}
+                <View style={styles.buttonRow}><Button label="Cancel" kind="light" onPress={() => {setProfileEditing(false); setProfileName(user.name); setProfilePhoto(null); setProfileMessage('');}} /><Button label={profileBusy ? 'Saving…' : 'Save changes'} onPress={() => void saveProfileName()} disabled={profileBusy} loading={profileBusy} /></View>
+              </> : <Button label="Edit profile" kind="light" onPress={() => {setProfileMessage(''); setProfilePhoto(null); setProfileEditing(true);}} />}
               {profileMessage ? <Notice text={profileMessage} tone={profileMessage.includes('updated') ? 'success' : 'error'} /> : null}
               <InfoRow label="Farmer reference" value={user.reference} />
               <InfoRow label="Account status" value={user.status} translateValue />
@@ -864,7 +873,7 @@ export default function FarmerShell(props: {
         <TouchableOpacity style={styles.headerAccount} onPress={() => setTab('profile')}>
           <View style={[styles.headerOnlineDot, {backgroundColor: networkConnected && serverReachable ? C.green : C.amber}]} />
           <NativeText style={styles.headerAccountText} numberOfLines={1}>{user.name.split(' ')[0]}</NativeText>
-          <Text style={styles.headerAvatar}>{user.name.trim().charAt(0).toUpperCase()}</Text>
+          <Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} size={31} />
         </TouchableOpacity>
       </View>
       <View style={styles.monitoringBanner}><Text style={styles.monitoringBannerText}>RSSI MONITORING · Farmer observations are subject to SRA review</Text></View>
