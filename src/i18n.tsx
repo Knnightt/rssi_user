@@ -9,10 +9,10 @@ type LanguageContextValue = {language: Language; setLanguage: (value: Language) 
 const languageStorageKey = 'rssi_app_language';
 
 const tagalog: Record<string, string> = {
-  'Dashboard': 'Dashboard', 'Map coverage': 'Saklaw ng mapa', 'Submit report': 'Magsumite ng ulat',
+  'Dashboard': 'Dashboard', 'Map coverage': 'Saklaw ng mapa', 'Farm coverage': 'Saklaw ng sakahan', 'Submit report': 'Magsumite ng ulat',
   'My submitted reports': 'Mga isinumite kong ulat', 'Updates': 'Mga update', 'My farm': 'Aking sakahan',
   'My profile': 'Aking profile', 'Help & support': 'Tulong at suporta',
-  'Home': 'Home', 'Map': 'Mapa', 'Report': 'Ulat', 'History': 'Kasaysayan', 'New report': 'Bagong ulat',
+  'Home': 'Home', 'Map': 'Mapa', 'Farms': 'Mga sakahan', 'View map coverage': 'Tingnan ang saklaw ng mapa', 'Report': 'Ulat', 'History': 'Kasaysayan', 'New report': 'Bagong ulat',
   'RSSI FARMER MONITORING': 'PAGSUBAYBAY NG RSSI PARA SA MAGSASAKA',
   'RSSI MONITORING · Farmer observations are subject to SRA review': 'PAGSUBAYBAY NG RSSI · Susuriin ng SRA ang mga obserbasyon ng magsasaka',
   'Offline mode · saved reports will sync automatically': 'Offline · awtomatikong isi-sync ang mga naka-save na ulat',

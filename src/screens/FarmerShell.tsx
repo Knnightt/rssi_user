@@ -331,7 +331,10 @@ export default function FarmerShell(props: {
               setFarmLocationBusy(true);
               void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : t('Could not read location.'))).finally(() => setFarmLocationBusy(false));
             }} />
-            {farmCoordinates ? <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text> : <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text>}
+            {farmCoordinates ? <>
+              <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
+              {farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
+            </> : <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text>}
           </> : <Text style={styles.helperText}>{t('Save this change to remove the exact pin from SRA Map Monitoring.')}</Text>}
           {!networkConnected ? <Text style={styles.helperText}>{t('Adding a farm needs a connection. You can still save reports about farms already on your account.')}</Text> : null}
           <View style={styles.buttonRow}>
@@ -366,7 +369,10 @@ export default function FarmerShell(props: {
             setFarmLocationBusy(true);
             void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : 'Could not read location.')).finally(() => setFarmLocationBusy(false));
           }} />
-          {farmCoordinates ? <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text> : null}
+          {farmCoordinates ? <>
+            <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
+            {farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
+          </> : null}
           {!farmCoordinates ? <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text> : null}
           </> : null}
           {!networkConnected ? <Text style={styles.helperText}>Adding a farm needs a connection. You can still save reports about farms already on your account.</Text> : null}
@@ -377,6 +383,7 @@ export default function FarmerShell(props: {
         </>
       ) : (
         <>
+          <Button label="＋  Add a farm" kind="light" onPress={() => {setLocationEditProperty(null); setFarmForm(true); setFarmMessage(''); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
           {properties.length === 0 ? <EmptyState icon="⌖" title="No farms added yet" description="Add your farm to start reporting field observations." /> : null}
           {properties.map(property => <View key={property.id}>
             <FarmRow property={property} onPress={() => setSelectedFarm(property.id)} selected={selectedFarm === property.id} />
@@ -384,7 +391,6 @@ export default function FarmerShell(props: {
               <Text style={styles.linkText}>{t('Set or edit map pin')} →</Text>
             </TouchableOpacity>
           </View>)}
-          <Button label="＋  Add a farm" kind="light" onPress={() => {setLocationEditProperty(null); setFarmForm(true); setFarmMessage(''); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
         </>
       )}
     </Card>
@@ -420,11 +426,11 @@ export default function FarmerShell(props: {
     : null;
   const mapHtml = useMemo(() => createMapHtml(visibleMapProperties, reports, queue, language), [visibleMapProperties, reports, queue, language]);
   const screenTitle = tab === 'home' ? 'Dashboard'
-    : tab === 'map' ? 'Map coverage'
+    : tab === 'map' ? 'Farm coverage'
       : tab === 'report' ? 'Submit report'
         : tab === 'history' ? 'My submitted reports'
           : tab === 'community' ? 'Updates'
-            : tab === 'farms' ? 'My farm'
+            : tab === 'farms' ? 'Your farms'
               : tab === 'profile' ? 'My profile' : 'Help & support';
 
   const renderCurrentScreen = () => {
@@ -521,8 +527,9 @@ export default function FarmerShell(props: {
       case 'farms':
         return (
           <>
-            <PageIntro eyebrow="YOUR PROPERTY RECORDS" title="My farms" subtitle="Manage the farm locations linked to your account." />
+            <PageIntro eyebrow="YOUR FARMS" title="Your farms" subtitle="Manage your farms and add another farm to your account." />
             {createFarmForm()}
+            <Button label="View map coverage" kind="light" onPress={() => setTab('map')} />
             <Card>
               <Text style={styles.cardTitle}>Location privacy</Text>
               <Text style={styles.bodyText}>Farm addresses are visible to you and authorized SRA staff. Your exact GPS pin is optional and is only stored when you give consent.</Text>
@@ -532,7 +539,7 @@ export default function FarmerShell(props: {
       case 'map':
         return (
           <>
-            <PageIntro eyebrow="NEGROS ORIENTAL & OCCIDENTAL" title="Map coverage" subtitle="Farm circle size follows the recorded hectares. Circle color follows your latest farmer-submitted report severity." />
+            <PageIntro eyebrow="NEGROS ORIENTAL & OCCIDENTAL" title="Farm coverage" subtitle="Farm circle size follows the recorded hectares. Circle color follows your latest farmer-submitted report severity." />
             <TextInput value={mapSearch} onChangeText={setMapSearch} placeholder={t('Search city, farm, or report…')} placeholderTextColor="#7D91A2" style={styles.dashboardSearch} accessibilityLabel={t('Search map coverage')} />
             <View style={styles.filterChipRow}>
               {['All provinces', 'Negros Oriental', 'Negros Occidental'].map(value => (
@@ -866,7 +873,7 @@ export default function FarmerShell(props: {
       </ScrollView>
       <View style={styles.bottomNav}>
         <NavButton icon="⌂" label="Home" active={tab === 'home'} onPress={() => setTab('home')} />
-        <NavButton icon="⌖" label="Map" active={tab === 'map'} onPress={() => setTab('map')} />
+        <NavButton icon="⌖" label="Farms" active={tab === 'farms'} onPress={() => setTab('farms')} />
         <TouchableOpacity style={styles.primaryNavAction} onPress={() => setTab('report')} accessibilityRole="button" accessibilityLabel="New report">
           <Text style={styles.primaryNavPlus}>＋</Text><Text style={styles.primaryNavLabel}>Report</Text>
         </TouchableOpacity>

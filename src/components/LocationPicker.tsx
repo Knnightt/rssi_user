@@ -18,6 +18,7 @@ type PickerWebViewProps = {
   mixedContentMode: 'never';
   setSupportMultipleWindows: boolean;
   onMessage: (event: WebViewMessageEvent) => void;
+  onLoadStart: () => void;
   accessibilityLabel: string;
 };
 const PickerWebView = WebView as unknown as React.ComponentType<PickerWebViewProps>;
@@ -31,35 +32,34 @@ export function LocationPicker({
   onChange: (coordinates: FarmCoordinates) => void;
 }) {
   const webView = useRef<WebView | null>(null);
-  const ready = useRef(false);
+  const [mapReady, setMapReady] = useState(false);
   const [html] = useState(() => createPickerHtml(value));
   const latitude = value?.latitude;
   const longitude = value?.longitude;
 
-  const updatePin = useCallback((coordinates: FarmCoordinates, moveMap: boolean) => {
+  const updatePin = useCallback((coordinates: FarmCoordinates | null) => {
+    if (!coordinates) {
+      webView.current?.injectJavaScript('window.clearFarmPin && window.clearFarmPin(); true;');
+      return;
+    }
     const lat = Number(coordinates.latitude);
     const lng = Number(coordinates.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     webView.current?.injectJavaScript(
-      `window.setFarmPin && window.setFarmPin(${lat},${lng},${moveMap ? 'true' : 'false'}); true;`,
+      `window.setFarmPin && window.setFarmPin(${lat},${lng},true); true;`,
     );
   }, []);
 
   useEffect(() => {
-    if (!ready.current) return;
-    if (latitude !== undefined && longitude !== undefined) {
-      updatePin({latitude, longitude}, true);
-    } else {
-      webView.current?.injectJavaScript('window.clearFarmPin && window.clearFarmPin(); true;');
-    }
-  }, [latitude, longitude, updatePin]);
+    if (!mapReady) return;
+    updatePin(latitude !== undefined && longitude !== undefined ? {latitude, longitude} : null);
+  }, [latitude, longitude, mapReady, updatePin]);
 
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
     try {
       const message = JSON.parse(event.nativeEvent.data) as {type?: string; latitude?: number; longitude?: number};
       if (message.type === 'ready') {
-        ready.current = true;
-        if (value) updatePin(value, false);
+        setMapReady(true);
         return;
       }
       if (message.type === 'location' && Number.isFinite(message.latitude) && Number.isFinite(message.longitude)) {
@@ -68,7 +68,7 @@ export function LocationPicker({
     } catch {
       // Ignore malformed messages from the embedded map.
     }
-  }, [onChange, updatePin, value]);
+  }, [onChange]);
 
   return (
     <View style={styles.locationPickerFrame}>
@@ -82,6 +82,7 @@ export function LocationPicker({
         mixedContentMode="never"
         setSupportMultipleWindows={false}
         onMessage={handleMessage}
+        onLoadStart={() => setMapReady(false)}
         accessibilityLabel="Interactive farm location map"
       />
     </View>

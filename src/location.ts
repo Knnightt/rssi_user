@@ -1,18 +1,16 @@
 import {PermissionsAndroid, Platform} from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 
-export type FarmCoordinates = {latitude: number; longitude: number};
+export type FarmCoordinates = {latitude: number; longitude: number; accuracy?: number};
 
 export async function captureFarmCoordinates(): Promise<FarmCoordinates> {
   if (Platform.OS === 'android') {
-    const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, {
-      title: 'Use your farm location',
-      message: 'Your current location is used to position the farm pin. It is sent with your registration only if you turn on precise-location consent.',
-      buttonPositive: 'Allow once',
-      buttonNegative: 'Not now',
-    });
-    if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
-      throw new Error('Location permission was not granted. You can still save the farm without a GPS pin.');
+    const permissions = await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+    ]);
+    if (permissions[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] !== PermissionsAndroid.RESULTS.GRANTED) {
+      throw new Error('Precise location permission was not granted. Allow precise location in Settings, or place the pin manually on the map.');
     }
   }
 
@@ -27,9 +25,10 @@ export async function captureFarmCoordinates(): Promise<FarmCoordinates> {
       position => resolve({
         latitude: Number(position.coords.latitude.toFixed(7)),
         longitude: Number(position.coords.longitude.toFixed(7)),
+        accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined,
       }),
       error => reject(new Error(error.message || 'Could not read your current location.')),
-      {enableHighAccuracy: true, timeout: 20000, maximumAge: 10000},
+      {enableHighAccuracy: true, timeout: 30000, maximumAge: 0, distanceFilter: 0},
     );
   });
 }

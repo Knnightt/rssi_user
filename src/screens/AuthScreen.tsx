@@ -273,6 +273,7 @@ export default function AuthScreen({
                 {coordinates ? <View style={{marginTop: 4}}>
                   <Text style={styles.coordinatesText}>Selected farm pin</Text>
                   <Text style={styles.coordinatesText}>{coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
+                  {coordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(coordinates.accuracy)} m</Text> : null}
                 </View> : null}
                 <Text style={styles.helperText}>Map tiles require an internet connection.</Text>
                 <ToggleLine
