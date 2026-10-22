@@ -40,13 +40,19 @@ export default function useFarmerSession(onMessage: (message: string) => void) {
   }, [onMessage]);
 
   const applyAuth = useCallback(async (auth: AuthResponse) => {
+    const authenticatedUser = {
+      ...auth.user,
+      profile_photo_cache_key: user?.id === auth.user.id && user.profile_photo_url === auth.user.profile_photo_url
+        ? user.profile_photo_cache_key
+        : undefined,
+    };
     setToken(auth.access_token);
-    setUser(auth.user);
+    setUser(authenticatedUser);
     await Promise.all([
       writeSecure('session-token', auth.access_token),
-      writeSecureJson('session-user', auth.user),
+      writeSecureJson('session-user', authenticatedUser),
     ]);
-  }, []);
+  }, [user]);
 
   const signOut = useCallback(async (networkConnected: boolean) => {
     if (token && networkConnected) {

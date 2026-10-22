@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from 'react-native';
 import {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, uploadProfilePhoto} from '../api';
+import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, geocodeFarmBarangayLocation, uploadProfilePhoto} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {DropdownField} from '../components/DropdownField';
@@ -38,6 +38,7 @@ export default function AuthScreen({
   const [error, setError] = useState(initialMessage);
   const [preciseLocationConsent, setPreciseLocationConsent] = useState(false);
   const [coordinates, setCoordinates] = useState<FarmCoordinates | null>(null);
+  const [mapGestureActive, setMapGestureActive] = useState(false);
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   const [addressLookupBusy, setAddressLookupBusy] = useState(false);
@@ -162,15 +163,33 @@ export default function AuthScreen({
     setLocationBusy(false);
   };
 
-  const selectBarangay = (barangay: string) => {
+  const selectBarangay = async (barangay: string) => {
     addressLookupRevision.current += 1;
+    const revision = ++locationRequestRevision.current;
     geocodedAddressKey.current = '';
     setAddressLookupBusy(false);
     setAddressLookupMessage('');
     setField('barangay', barangay);
     setCoordinates(null);
-    setLocationMessage('');
-    void captureLocation();
+    setLocationBusy(true);
+    setLocationMessage('Finding this barangay on the map…');
+    try {
+      const result = await geocodeFarmBarangayLocation({
+        province: fields.province,
+        municipality: fields.municipality,
+        barangay,
+      });
+      if (revision === locationRequestRevision.current) {
+        setCoordinates({latitude: result.latitude, longitude: result.longitude});
+        setLocationMessage(`Map centered on ${barangay}. Move the pin if your farm is elsewhere.`);
+      }
+    } catch (lookupError) {
+      if (revision === locationRequestRevision.current) {
+        setLocationMessage(lookupError instanceof Error ? lookupError.message : 'Could not find this barangay on the map. You can still move the map manually.');
+      }
+    } finally {
+      if (revision === locationRequestRevision.current) setLocationBusy(false);
+    }
   };
 
   const continueRegistration = () => {
@@ -295,7 +314,7 @@ export default function AuthScreen({
   };
 
   const renderFarmFields = () => <>
-    <Field label="Farm / plot name *" value={fields.propertyName} onChangeText={value => setField('propertyName', value)} placeholder="Farm name or landmark" autoCapitalize="words" />
+    <Field label="Farm / plot name *" value={fields.propertyName} onChangeText={value => setField('propertyName', value)} placeholder="Farm name or landmark" autoCapitalize="words" autoCorrect={false} />
     <View style={styles.fieldRow}>
       <View style={styles.fieldGrow}>
         <Text style={styles.inputLabel}>Province</Text>
@@ -315,15 +334,15 @@ export default function AuthScreen({
     />
     <View style={styles.fieldRow}>
       <View style={styles.fieldGrow}><DropdownField label="Barangay *" value={fields.barangay} options={barangayOptions} placeholder={fields.municipality ? 'Select your barangay' : 'Select a municipality first'} disabled={!fields.municipality} onSelect={selectBarangay} /></View>
-      <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" /></View>
+      <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" autoCorrect={false} /></View>
     </View>
-    <Field label="Complete farm address *" value={fields.address} onChangeText={changeAddress} onBlur={() => void locateEnteredAddress()} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
+    <Field label="Complete farm address *" value={fields.address} onChangeText={changeAddress} onBlur={() => void locateEnteredAddress()} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" autoCorrect={false} />
     <Text style={styles.helperText}>After you finish the address and leave this field, RSSI suggests a map pin. Review it and move the pin to your farm.</Text>
     {addressLookupMessage ? <Text style={styles.helperText}>{addressLookupMessage}</Text> : null}
     <Text style={[styles.inputLabel, styles.locationPickerTitle]}>Choose your exact farm location</Text>
-    <Notice text="After you choose a barangay, RSSI will place a pin at your current location. Use two fingers to move the map under the fixed center pin." tone="info" />
-    <LocationPicker value={coordinates} onChange={moveMapPin} />
-    {locationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
+    <Notice text="Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin." tone="info" />
+    <LocationPicker value={coordinates} onChange={moveMapPin} onGestureActive={setMapGestureActive} />
+    {locationBusy ? <Text style={styles.helperText}>{locationMessage || 'Getting your current location…'}</Text> : null}
     {locationMessage ? <Text style={styles.helperText}>{locationMessage}</Text> : null}
     {coordinates ? <View style={styles.coordinatesWrap}>
       <Text style={styles.coordinatesText}>Selected farm pin</Text>
@@ -352,7 +371,7 @@ export default function AuthScreen({
   return (
     <SafeAreaView style={styles.authRoot}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled" scrollEnabled={!mapGestureActive}>
           <View style={styles.authBrandRow}>
             <BrandMark large />
             <View style={styles.flex}>
@@ -374,13 +393,13 @@ export default function AuthScreen({
             {isRegistering ? <>
               <View style={styles.authStepBadge}><Pill text={`STEP ${registerStep + 1} OF 4`} tone="blue" /><Text style={styles.helperText}>{registrationSteps[registerStep]}</Text></View>
               {registerStep === 0 ? <>
-                <Field label="Full name *" value={fields.name} onChangeText={value => setField('name', value)} placeholder="Enter your full name" autoCapitalize="words" />
+                <Field label="Full name *" value={fields.name} onChangeText={value => setField('name', value)} placeholder="Enter your full name" autoCapitalize="words" autoCorrect={false} />
                 <Text style={styles.helperText}>Enter the name you use for your farmer account and reports.</Text>
               </> : null}
               {registerStep === 1 ? <>
-                <Field label="Username for login *" value={fields.username} onChangeText={value => setField('username', value.replace(/\s/g, '').toLowerCase())} placeholder="Choose a username" autoCapitalize="none" />
+                <Field label="Username for login *" value={fields.username} onChangeText={value => setField('username', value)} placeholder="Choose a username" autoCapitalize="none" autoCorrect={false} />
                 <Text style={styles.helperText}>Use this username whenever you sign in. Add your email address in profile information.</Text>
-                <Field label="Password (10 characters minimum) *" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry autoCapitalize="none" />
+                <Field label="Password (10 characters minimum) *" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry autoCapitalize="none" autoCorrect={false} />
               </> : null}
               {registerStep === 2 ? <>
                 <Text style={styles.bodyText}>Would you like to register a farm now? You can add one later from your account.</Text>
@@ -391,9 +410,9 @@ export default function AuthScreen({
                 {addFarm ? renderFarmFields() : null}
               </> : null}
               {registerStep === 3 ? <>
-                <Field label="Email address *" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
+                <Field label="Email address *" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
                 <Text style={styles.helperText}>Your email is saved as account contact information. Sign-in always uses your username.</Text>
-                <Field label="Phone number *" value={fields.phoneNumber} onChangeText={value => setField('phoneNumber', value)} placeholder="09XX XXX XXXX" keyboardType="numeric" autoCapitalize="none" />
+                <Field label="Phone number *" value={fields.phoneNumber} onChangeText={value => setField('phoneNumber', value)} placeholder="09XX XXX XXXX" keyboardType="numeric" autoCapitalize="none" autoCorrect={false} />
                 <ProfilePhotoPicker name={fields.name} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={busy} />
                 <Text style={styles.helperText}>When you create your account, RSSI will sign you in automatically.</Text>
               </> : null}
@@ -402,11 +421,7 @@ export default function AuthScreen({
                 <View style={styles.flex}><Button label={busy ? 'Creating account…' : registerStep === 3 ? 'Create account' : 'Next'} onPress={() => registerStep === 3 ? void finishRegistration() : continueRegistration()} disabled={busy || addressLookupBusy} loading={busy || addressLookupBusy} /></View>
               </View>
             </> : <>
-              {loginUsername ? <View style={styles.loginAccountCard}>
-                <Text style={styles.inputLabel}>Signing in as</Text>
-                <Text style={styles.loginAccountName}>{loginUsername}</Text>
-                <TouchableOpacity style={styles.authAccountLink} onPress={() => {setLoginUsername(''); void removeSecure('last-farmer-username');}}><Text style={styles.linkText}>Use another username</Text></TouchableOpacity>
-              </View> : <Field label="Username" value={loginUsername} onChangeText={setLoginUsername} placeholder="Your username" autoCapitalize="none" />}
+              <Field label="Username" value={loginUsername} onChangeText={setLoginUsername} placeholder="Your username" autoCapitalize="none" autoCorrect={false} />
               <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry autoCapitalize="none" />
               <Button label={busy ? 'Connecting…' : 'Sign in'} onPress={() => void signIn()} disabled={busy} loading={busy} />
             </>}

@@ -45,6 +45,7 @@ export function Field(props: {
   multiline?: boolean;
   maxLength?: number;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoCorrect?: boolean;
   onBlur?: () => void;
 }) {
   const {t} = useLanguage();
@@ -61,7 +62,7 @@ export function Field(props: {
       multiline={props.multiline}
       maxLength={props.maxLength}
       autoCapitalize={props.autoCapitalize || 'sentences'}
-      autoCorrect={!props.secureTextEntry && props.keyboardType !== 'email-address'}
+      autoCorrect={props.autoCorrect ?? (!props.secureTextEntry && props.keyboardType !== 'email-address')}
       style={[styles.input, props.multiline && styles.multilineInput]}
       textAlignVertical={props.multiline ? 'top' : 'center'}
     />
@@ -199,23 +200,25 @@ export function InfoRow({label, value, compact = false, translateValue = false}:
   return <View style={[styles.infoRow, compact && styles.infoRowCompact]}><Text style={styles.infoLabel}>{t(label)}</Text>{translateValue ? <Text style={styles.infoValue}>{t(value)}</Text> : <NativeText style={styles.infoValue}>{value}</NativeText>}</View>;
 }
 
-export function Avatar({name, photoUrl, localUri, token, size = 48}: {
+export function Avatar({name, photoUrl, photoCacheKey, localUri, token, size = 48}: {
   name: string;
   photoUrl?: string | null;
+  photoCacheKey?: string;
   localUri?: string | null;
   token?: string | null;
   size?: number;
 }) {
-  const remoteUri = getProfilePhotoUri(photoUrl);
+  const remoteUri = getProfilePhotoUri(photoUrl, photoCacheKey);
   const uri = localUri || remoteUri;
   return <View style={[styles.avatar, avatarSizeStyle(size)]}>
     {uri ? <Image source={{uri, ...(remoteUri && !localUri && token ? {headers: {Authorization: `Bearer ${token}`}} : {})}} resizeMode="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, avatarInitialStyle(size)]}>{name.trim().charAt(0).toUpperCase()}</Text>}
   </View>;
 }
 
-export function ProfilePhotoPicker({name, photoUrl, token, selectedPhoto, onSelect, disabled = false}: {
+export function ProfilePhotoPicker({name, photoUrl, photoCacheKey, token, selectedPhoto, onSelect, disabled = false}: {
   name: string;
   photoUrl?: string | null;
+  photoCacheKey?: string;
   token?: string | null;
   selectedPhoto: Asset | null;
   onSelect: (photo: Asset) => void;
@@ -252,7 +255,7 @@ export function ProfilePhotoPicker({name, photoUrl, token, selectedPhoto, onSele
   };
 
   return <View style={styles.profilePhotoField}>
-    <Avatar name={name} photoUrl={photoUrl} localUri={selectedPhoto?.uri} token={token} size={72} />
+    <Avatar name={name} photoUrl={photoUrl} photoCacheKey={photoCacheKey} localUri={selectedPhoto?.uri} token={token} size={72} />
     <View style={styles.flex}>
       <Text style={styles.inputLabel}>Profile picture (optional)</Text>
       <Text style={styles.helperText}>Use a clear photo so your SRA team can recognize your account.</Text>

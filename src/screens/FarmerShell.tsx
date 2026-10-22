@@ -1,18 +1,18 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {ActivityIndicator, Image, Platform, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
+import {Image, Platform, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
+import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {DropdownField} from '../components/DropdownField';
 import negrosLocations from '../data/negrosLocations.json';
 import {createId, QueuedPhoto, QueuedReport, storePhoto} from '../reportQueue';
-import {C, styles, useTheme} from '../theme';
+import {styles, useTheme} from '../theme';
 import {Tab} from '../types';
-import {Avatar, BrandMark, Button, Card, Choice, CommunityCard, EmptyState, FarmRow, Field, InfoRow, LanguageSwitcher, NavButton, Notice, PageIntro, Pill, PrivacyNote, ProfilePhotoPicker, QueuedReportRow, ReportRow, SeverityBadge, SummaryCard, ThemeSwitcher, ToggleLine} from '../components/UI';
+import {Avatar, BrandMark, Button, Card, Choice, CommunityCard, EmptyState, FarmRow, Field, InfoRow, LanguageSwitcher, NavButton, Notice, PageIntro, Pill, PrivacyNote, ProfilePhotoPicker, QueuedReportRow, ReportRow, SeverityBadge, ThemeSwitcher, ToggleLine} from '../components/UI';
 import {LocalizedText as Text, useLanguage} from '../i18n';
 
 export default function FarmerShell(props: {
@@ -70,7 +70,6 @@ export default function FarmerShell(props: {
   const [reportError, setReportError] = useState('');
   const [reportBusy, setReportBusy] = useState(false);
   const [reportSearch, setReportSearch] = useState('');
-  const [dashboardSearch, setDashboardSearch] = useState('');
   const [historyFilter, setHistoryFilter] = useState('All');
   const [selectedReport, setSelectedReport] = useState<FieldReport | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
@@ -92,9 +91,6 @@ export default function FarmerShell(props: {
   }, [user.name]);
 
   const selectedProperty = properties.find(property => property.id === selectedFarm) || properties[0];
-  const totalReports = reports.length;
-  const localTotal = totalReports + queue.filter(item => !item.serverReportId).length;
-  const dashboardStatus = networkConnected ? (serverReachable ? 'Connected' : 'Server checking') : 'Offline mode';
   const filteredReports = reports.filter(report => {
     const query = reportSearch.trim().toLocaleLowerCase();
     const matchesQuery = !query || [report.code, report.property_name, report.province, report.municipality, report.observations, report.verification_status]
@@ -289,11 +285,29 @@ export default function FarmerShell(props: {
     setFarmValues(current => ({...current, municipality, barangay: ''}));
   };
 
-  const selectFarmBarangay = (barangay: string) => {
-    farmLocationRequest.current += 1;
+  const selectFarmBarangay = async (barangay: string) => {
+    const request = ++farmLocationRequest.current;
     setFarmCoordinates(null);
     setFarmValues(current => ({...current, barangay}));
-    captureNewFarmLocation();
+    setFarmLocationBusy(true);
+    setFarmMessage('Finding this barangay on the map…');
+    try {
+      const result = await geocodeFarmBarangayLocation({
+        province: farmValues.province,
+        municipality: farmValues.municipality,
+        barangay,
+      });
+      if (request === farmLocationRequest.current) {
+        setFarmCoordinates({latitude: result.latitude, longitude: result.longitude});
+        setFarmMessage(`Map centered on ${barangay}. Move the pin if your farm is elsewhere.`);
+      }
+    } catch (error) {
+      if (request === farmLocationRequest.current) {
+        setFarmMessage(error instanceof Error ? error.message : 'Could not find this barangay on the map. You can still move the map manually.');
+      }
+    } finally {
+      if (request === farmLocationRequest.current) setFarmLocationBusy(false);
+    }
   };
 
   const openFarmLocationEditor = (property: FarmProperty) => {
@@ -435,7 +449,7 @@ export default function FarmerShell(props: {
             onValueChange={value => {setFarmLocationConsent(value); if (!value) setFarmCoordinates(null);}}
           />
           {farmLocationConsent ? <>
-            <Text style={styles.helperText}>{t('Tap the map to place the pin, or use two fingers to move the map under the center pin. Map tiles need internet.')}</Text>
+            <Text style={styles.helperText}>{t('Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin. Map tiles need internet.')}</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
             <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
               setFarmLocationBusy(true);
@@ -488,7 +502,7 @@ export default function FarmerShell(props: {
             onValueChange={setFarmLocationConsent}
           />
           {farmValues.barangay || farmCoordinates ? <>
-            <Text style={styles.helperText}>Tap the map to place the farm pin, or use two fingers to move the map under the center pin.</Text>
+          <Text style={styles.helperText}>Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
             {farmLocationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
             {farmCoordinates ? <>
@@ -523,12 +537,6 @@ export default function FarmerShell(props: {
     counts[property.province] = (counts[property.province] || 0) + 1;
     return counts;
   }, {});
-  const dashboardMatches = dashboardSearch.trim()
-    ? {
-      farms: properties.filter(property => `${property.name} ${property.province} ${property.municipality} ${property.barangay || ''} ${property.address || ''}`.toLocaleLowerCase().includes(dashboardSearch.trim().toLocaleLowerCase())),
-      reports: reports.filter(report => `${report.code} ${report.property_name} ${report.province} ${report.municipality} ${report.observations}`.toLocaleLowerCase().includes(dashboardSearch.trim().toLocaleLowerCase())),
-    }
-    : null;
   const screenTitle = tab === 'home' ? 'Dashboard'
     : tab === 'report' ? 'Submit report'
         : tab === 'history' ? 'My submitted reports'
@@ -542,45 +550,8 @@ export default function FarmerShell(props: {
         return (
           <>
             <PageIntro eyebrow="RSSI FARMER MONITORING" title="Dashboard" subtitle={`Welcome back, ${user.name.split(' ')[0]}. Track your farms and field observations.`} />
-            <TextInput
-              value={dashboardSearch}
-              onChangeText={setDashboardSearch}
-              placeholder={t('Search farms, barangays, or reports…')}
-              placeholderTextColor="#7D91A2"
-              style={styles.dashboardSearch}
-              accessibilityLabel={t('Search farms and reports')}
-              returnKeyType="search"
-            />
-            {dashboardMatches ? (
-              <Card>
-                <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Search results</Text><TouchableOpacity onPress={() => setDashboardSearch('')}><Text style={styles.linkText}>Clear</Text></TouchableOpacity></View>
-                {dashboardMatches.farms.map(property => <FarmRow key={`search-farm-${property.id}`} property={property} onPress={() => {setSelectedFarm(property.id); setTab('farms');}} selected={false} />)}
-                {dashboardMatches.reports.map(report => <ReportRow key={`search-report-${report.id}`} report={report} onPress={() => {setSelectedReport(report); setTab('history');}} />)}
-                {dashboardMatches.farms.length + dashboardMatches.reports.length === 0 ? <EmptyState icon="⌕" title="No matches" description="Try a farm name, municipality, or report code." /> : null}
-              </Card>
-            ) : null}
-            <View style={styles.summaryGrid}>
-              <SummaryCard label="Coverage" value={`${new Set(properties.map(property => property.province)).size} provinces`} icon="⌖" tone="blue" />
-              <SummaryCard label="Active reports" value={String(localTotal)} icon="▤" tone="green" />
-              <SummaryCard label="Last sync" value={serverReachable ? 'Live' : 'Offline'} icon="↻" tone={serverReachable ? 'green' : 'amber'} />
-            </View>
-            <Card style={styles.statusCard}>
-              <View style={styles.statusHead}>
-                <View style={[styles.statusDot, networkConnected && serverReachable ? styles.onlineDot : styles.offlineDot]} />
-                <Text style={styles.statusTitle}>{dashboardStatus}</Text>
-                {busy ? <ActivityIndicator size="small" color={C.blue} /> : null}
-              </View>
-              <Text style={styles.cardSub}>
-                {networkConnected && serverReachable
-                  ? 'Your farm and report details are up to date.'
-                  : networkConnected
-                    ? 'Your network is available. Checking your RSSI server…'
-                    : 'Saved farm details and your report drafts stay available offline.'}
-              </Text>
-              {queue.length > 0 ? <Button label={busy ? 'Syncing reports…' : `Sync ${queue.length} waiting report${queue.length === 1 ? '' : 's'}`} onPress={props.onSync} disabled={!networkConnected || busy} loading={busy} kind="light" /> : null}
-            </Card>
             <TouchableOpacity style={styles.profileShortcut} onPress={() => setTab('profile')} accessibilityRole="button">
-              <View style={styles.profileShortcutIcon}><Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} size={38} /></View>
+              <View style={styles.profileShortcutIcon}><Avatar name={user.name} photoUrl={user.profile_photo_url} photoCacheKey={user.profile_photo_cache_key} token={token} size={38} /></View>
               <View style={styles.flex}><Text style={styles.profileShortcutTitle}>My profile</Text><Text style={styles.profileShortcutSub}>View and edit your account information</Text></View>
               <Text style={styles.quickArrow}>›</Text>
             </TouchableOpacity>
@@ -616,13 +587,6 @@ export default function FarmerShell(props: {
                 </>
               )}
             </Card>
-            <View style={styles.buttonRow}>
-              <View style={styles.flex}><Button label="Export summary" kind="blue" onPress={() => void exportReports()} /></View>
-              <View style={styles.flex}><Button label="Add field report" onPress={() => setTab('report')} /></View>
-            </View>
-            <View style={styles.buttonRow}>
-              <View style={styles.flex}><Button label="View reports" kind="light" onPress={() => setTab('history')} /></View>
-            </View>
             <PrivacyNote text="A farmer report is an observation for SRA review. It is not a confirmed RSSI finding." />
           </>
         );
@@ -811,10 +775,10 @@ export default function FarmerShell(props: {
             <PageIntro eyebrow="ACCOUNT & PRIVACY" title="My profile" subtitle="Update your account information and default farm details." />
             <Card>
               <Text style={styles.cardTitle}>Personal information</Text>
-              <View style={[styles.profileHeader, styles.profileHeaderSpaced]}><Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
+              <View style={[styles.profileHeader, styles.profileHeaderSpaced]}><Avatar name={user.name} photoUrl={user.profile_photo_url} photoCacheKey={user.profile_photo_cache_key} token={token} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
               {profileEditing ? <>
                 <Field label="Full name" value={profileName} onChangeText={setProfileName} placeholder="Your name" autoCapitalize="words" />
-                <ProfilePhotoPicker name={profileName || user.name} photoUrl={user.profile_photo_url} token={token} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={profileBusy} />
+                <ProfilePhotoPicker name={profileName || user.name} photoUrl={user.profile_photo_url} photoCacheKey={user.profile_photo_cache_key} token={token} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={profileBusy} />
                 <Text style={styles.readOnlyFieldLabel}>Email address</Text><Text style={styles.readOnlyField}>{user.email}</Text>
                 <Text style={styles.helperText}>Email changes are managed by your SRA administrator.</Text>
                 <View style={styles.buttonRow}><Button label="Cancel" kind="light" onPress={() => {setProfileEditing(false); setProfileName(user.name); setProfilePhoto(null); setProfileMessage('');}} /><Button label={profileBusy ? 'Saving…' : 'Save changes'} onPress={() => void saveProfileName()} disabled={profileBusy} loading={profileBusy} /></View>
@@ -874,7 +838,7 @@ export default function FarmerShell(props: {
         <TouchableOpacity style={styles.headerAccount} onPress={() => setTab('profile')}>
           <View style={[styles.headerOnlineDot, networkConnected && serverReachable ? styles.onlineDot : styles.offlineDot]} />
           <NativeText style={styles.headerAccountText} numberOfLines={1}>{user.name.split(' ')[0]}</NativeText>
-          <Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} size={31} />
+          <Avatar name={user.name} photoUrl={user.profile_photo_url} photoCacheKey={user.profile_photo_cache_key} token={token} size={31} />
         </TouchableOpacity>
       </View>
       <View style={styles.monitoringBanner}><Text style={styles.monitoringBannerText}>RSSI MONITORING · Farmer observations are subject to SRA review</Text></View>
@@ -891,16 +855,6 @@ export default function FarmerShell(props: {
         contentContainerStyle={styles.screenContent}
         keyboardShouldPersistTaps="handled"
         scrollEnabled={!farmMapGestureActive}
-        onTouchStartCapture={event => {
-          if (event.nativeEvent.touches.length >= 2) setFarmMapGestureActive(true);
-        }}
-        onTouchMoveCapture={event => {
-          if (event.nativeEvent.touches.length >= 2) setFarmMapGestureActive(true);
-        }}
-        onTouchEndCapture={event => {
-          if (event.nativeEvent.touches.length < 2) setFarmMapGestureActive(false);
-        }}
-        onTouchCancelCapture={() => setFarmMapGestureActive(false)}
       >
         {renderCurrentScreen()}
         <View style={styles.bottomSpacer} />

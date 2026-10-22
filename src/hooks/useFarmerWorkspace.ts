@@ -81,11 +81,17 @@ export default function useFarmerWorkspace(
       method: 'PATCH',
       body: JSON.stringify({name}),
     });
-    setUser(response.user);
-    await writeSecureJson('session-user', response.user);
+    const updatedUser = {
+      ...response.user,
+      profile_photo_cache_key: response.user.profile_photo_url === user.profile_photo_url
+        ? user.profile_photo_cache_key
+        : undefined,
+    };
+    setUser(updatedUser);
+    await writeSecureJson('session-user', updatedUser);
     const cache = await readCache(user.id);
     if (cache) {
-      await writeCache(user.id, {...cache, user: response.user, refreshedAt: new Date().toISOString()});
+      await writeCache(user.id, {...cache, user: updatedUser, refreshedAt: new Date().toISOString()});
     }
   }, [token, user, setUser]);
 
@@ -93,7 +99,11 @@ export default function useFarmerWorkspace(
     if (!user) {
       return;
     }
-    const updatedUser = {...user, profile_photo_url: profilePhotoUrl};
+    const updatedUser = {
+      ...user,
+      profile_photo_url: profilePhotoUrl,
+      profile_photo_cache_key: String(Date.now()),
+    };
     setUser(updatedUser);
     await writeSecureJson('session-user', updatedUser);
     const cache = await readCache(user.id);
@@ -112,7 +122,12 @@ export default function useFarmerWorkspace(
         apiRequest<{data: FarmProperty[]}>('/farmers/me/properties', token),
         apiRequest<{data: FieldReport[]}>('/farmers/me/reports', token),
       ]);
-      const currentUser = profile.user;
+      const currentUser = {
+        ...profile.user,
+        profile_photo_cache_key: profile.user.profile_photo_url === user?.profile_photo_url
+          ? user.profile_photo_cache_key
+          : undefined,
+      };
       const farmData = farmResponse.data || [];
       const reportData = reportResponse.data || [];
       setUser(currentUser);
@@ -135,7 +150,7 @@ export default function useFarmerWorkspace(
       }
       throw error;
     }
-  }, [token, userId, setUser, onMessage]);
+  }, [token, userId, user, setUser, onMessage]);
 
   const syncAndRefresh = useCallback(async (notify = false) => {
     if (!token || !userId || syncLock.current) {

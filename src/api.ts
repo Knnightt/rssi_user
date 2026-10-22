@@ -10,6 +10,7 @@ export type Farmer = {
   email: string | null;
   status: string;
   profile_photo_url?: string | null;
+  profile_photo_cache_key?: string;
 };
 
 export type FarmProperty = {
@@ -90,6 +91,50 @@ export type FarmReverseGeocodeResult = {
 let lastReverseGeocodeAt = 0;
 let reverseGeocodeQueue: Promise<void> = Promise.resolve();
 const reverseGeocodeCache = new Map<string, FarmReverseGeocodeResult>();
+const barangayGeocodeCache = new Map<string, FarmCoordinatesResult>();
+
+export type FarmCoordinatesResult = {latitude: number; longitude: number; formattedAddress: string};
+
+/** Finds an approximate center for a selected barangay using OpenStreetMap Nominatim. */
+export function geocodeFarmBarangayLocation(place: {province: string; municipality: string; barangay: string}): Promise<FarmCoordinatesResult> {
+  const key = [place.barangay, place.municipality, place.province, 'Philippines'].join(', ').toLocaleLowerCase();
+  const cached = barangayGeocodeCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  const lookup = reverseGeocodeQueue.then(async () => {
+    const queuedCache = barangayGeocodeCache.get(key);
+    if (queuedCache) return queuedCache;
+    const waitMs = Math.max(0, 1100 - (Date.now() - lastReverseGeocodeAt));
+    if (waitMs) await new Promise<void>(resolve => setTimeout(resolve, waitMs));
+    lastReverseGeocodeAt = Date.now();
+    const query = new URLSearchParams({
+      format: 'jsonv2',
+      addressdetails: '1',
+      limit: '1',
+      q: `${place.barangay}, ${place.municipality}, ${place.province}, Philippines`,
+    });
+    let response: Response;
+    try {
+      response = await fetch(`https://nominatim.openstreetmap.org/search?${query.toString()}`, {
+        headers: {Accept: 'application/json', 'User-Agent': 'RSSI-Farmer-App/1.0'},
+      });
+    } catch {
+      throw new ApiError(0, 'barangay_geocode_unavailable', 'Could not find this barangay on the map. You can still move the map manually.');
+    }
+    if (!response.ok) throw new ApiError(response.status, 'barangay_geocode_failed', 'Could not find this barangay on the map. You can still move the map manually.');
+    const results = await response.json() as Array<{lat?: string; lon?: string; display_name?: string}>;
+    const result = results[0];
+    const latitude = Number(result?.lat);
+    const longitude = Number(result?.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new ApiError(404, 'barangay_not_found', 'Could not find this barangay on the map. You can still move the map manually.');
+    }
+    const coordinates = {latitude, longitude, formattedAddress: result?.display_name || key};
+    barangayGeocodeCache.set(key, coordinates);
+    return coordinates;
+  });
+  reverseGeocodeQueue = lookup.then(() => undefined, () => undefined);
+  return lookup;
+}
 
 /** A user-triggered OSM reverse lookup; keep requests at or below one per second. */
 export function reverseGeocodeFarmLocation(coordinates: {latitude: number; longitude: number}): Promise<FarmReverseGeocodeResult> {
@@ -151,6 +196,7 @@ function humanizeCode(code: string): string {
     precise_location_disabled: 'Precise farm pins are disabled by the workspace.',
     property_not_found: 'Select one of your saved farms and try again.',
     forbidden: 'This action is not available for this account.',
+    http_500: 'The RSSI server failed while creating the account. Try signing in with the username and password you chose before registering again; the account may already have been created. If sign-in does not work, contact SRA support.',
   };
   return messages[code] || code.replaceAll('_', ' ');
 }
@@ -159,7 +205,26 @@ async function decodeResponse<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
     const code = typeof body.error === 'string' ? body.error : `http_${response.status}`;
-    const detail = typeof body.message === 'string' ? body.message : undefined;
+    const violations = Array.isArray(body.violations)
+      ? body.violations
+          .map(item => {
+            if (!item || typeof item !== 'object') return '';
+            const violation = item as Record<string, unknown>;
+            const field = typeof violation.propertyPath === 'string' ? violation.propertyPath : '';
+            const message = typeof violation.title === 'string' ? violation.title : '';
+            return field && message ? `${field}: ${message}` : message;
+          })
+          .filter(Boolean)
+          .join('\n')
+      : '';
+    // Do not display server exception details for 5xx responses.
+    const detail = response.status >= 500
+      ? undefined
+      : typeof body.message === 'string'
+        ? body.message
+        : typeof body.detail === 'string'
+          ? body.detail
+          : violations || undefined;
     throw new ApiError(response.status, code, detail || humanizeCode(code));
   }
   return body as T;
@@ -193,11 +258,13 @@ export async function apiRequest<T>(
 }
 
 /** Build the server URL for an authenticated profile photo returned by the API. */
-export function getProfilePhotoUri(photoUrl?: string | null): string | undefined {
+export function getProfilePhotoUri(photoUrl?: string | null, cacheKey?: string): string | undefined {
   if (!photoUrl) return undefined;
-  if (/^https?:\/\//i.test(photoUrl)) return photoUrl;
-  const baseUrl = getConfiguredApiBaseUrl().replace(/\/+$/, '');
-  return `${baseUrl}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`;
+  const uri = /^https?:\/\//i.test(photoUrl)
+    ? photoUrl
+    : `${getConfiguredApiBaseUrl().replace(/\/+$/, '')}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`;
+  if (!cacheKey) return uri;
+  return `${uri}${uri.includes('?') ? '&' : '?'}v=${encodeURIComponent(cacheKey)}`;
 }
 
 /** Upload a farmer profile photo using the authenticated profile-photo endpoint. */

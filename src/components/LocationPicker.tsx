@@ -113,7 +113,7 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
 #attribution{position:absolute;right:4px;bottom:2px;z-index:4;padding:2px 4px;background:rgba(255,255,255,.8);font-size:9px;color:#39444a}
 #tile-message{display:none;position:absolute;z-index:5;left:8px;right:52px;top:8px;padding:7px 9px;border-radius:5px;background:rgba(255,255,255,.94);font-size:11px;color:#46545b}
 </style></head><body>
-<div id="map" aria-label="Tap the map to place the farm pin, or use two fingers to move and zoom the map under the centered pin."><div id="tiles"></div><div id="pin"></div>
+<div id="map" aria-label="Drag with one finger to pan. Pinch with two fingers to zoom. Tap to place the farm pin."><div id="tiles"></div><div id="pin"></div>
 <button class="zoom plus" aria-label="Zoom in">+</button><button class="zoom minus" aria-label="Zoom out">−</button>
 <div id="tile-message">Map tiles did not load. Check your internet connection.</div>
 <div id="attribution">© OpenStreetMap contributors</div></div>
@@ -202,59 +202,60 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
     if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'location',latitude:center.lat,longitude:center.lng}));
   });
   map.addEventListener('touchstart',function(e){
-    if(e.touches.length!==2){
-      if(drag&&window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:false}));
-      drag=null;return;
+    if(e.touches.length===1){
+      var touch=e.touches[0];
+      drag={mode:'pan',x:touch.clientX,y:touch.clientY,dx:0,dy:0,startZoom:zoom};
+      if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:true}));
+      return;
     }
+    if(e.touches.length!==2)return;
     e.preventDefault();
     e.stopPropagation();
-    var x=(e.touches[0].clientX+e.touches[1].clientX)/2;
-    var y=(e.touches[0].clientY+e.touches[1].clientY)/2;
-    var c=project(center.lat,center.lng,zoom);
-    var rect=map.getBoundingClientRect();
     var distance=touchDistance(e.touches);
-    drag={x:x,y:y,lastX:x,lastY:y,dx:0,dy:0,startZoom:zoom,nextZoom:zoom,startDistance:distance,
-      originX:x-rect.left,originY:y-rect.top,anchor:unproject(c.x+x-map.clientWidth/2,c.y+y-map.clientHeight/2,zoom)};
+    drag={mode:'pinch',startZoom:zoom,nextZoom:zoom,startDistance:distance};
     if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:true}));
   },{passive:false,capture:true});
   map.addEventListener('touchmove',function(e){
-    if(!drag||e.touches.length!==2)return;
+    if(!drag)return;
+    if(drag.mode==='pan'&&e.touches.length===1){
+      e.preventDefault();
+      e.stopPropagation();
+      drag.dx=e.touches[0].clientX-drag.x;
+      drag.dy=e.touches[0].clientY-drag.y;
+      layer.style.transform='translate('+drag.dx+'px,'+drag.dy+'px)';
+      return;
+    }
+    if(drag.mode!=='pinch'||e.touches.length!==2)return;
     e.preventDefault();
     e.stopPropagation();
-    var x=(e.touches[0].clientX+e.touches[1].clientX)/2;
-    var y=(e.touches[0].clientY+e.touches[1].clientY)/2;
-    drag.dx=x-drag.x;drag.dy=y-drag.y;
-    drag.lastX=x;drag.lastY=y;
     var distance=touchDistance(e.touches);
     var scale=distance>0&&drag.startDistance>0?distance/drag.startDistance:1;
     drag.nextZoom=Math.max(3,Math.min(19,Math.round(drag.startZoom+Math.log(scale)/Math.LN2)));
     var visualScale=Math.pow(2,drag.nextZoom-drag.startZoom);
-    layer.style.transformOrigin=drag.originX+'px '+drag.originY+'px';
-    layer.style.transform='translate('+drag.dx+'px,'+drag.dy+'px) scale('+visualScale+')';
+    layer.style.transformOrigin=(map.clientWidth/2)+'px '+(map.clientHeight/2)+'px';
+    layer.style.transform='scale('+visualScale+')';
   },{passive:false,capture:true});
   map.addEventListener('touchend',function(e){
-    if(drag&&e.touches.length<2){
-      e.preventDefault();
-      e.stopPropagation();
-      var moved=Math.abs(drag.dx)+Math.abs(drag.dy)>3;
-      var zoomed=drag.nextZoom!==drag.startZoom;
-      if(moved||zoomed)ignoreNextClickUntil=Date.now()+400;
-      if(moved){
-        var p=unproject(project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom).x-drag.dx,
-          project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom).y-drag.dy,drag.nextZoom);
-        center={lat:Number(p.lat.toFixed(7)),lng:Number(p.lng.toFixed(7))};
-        selected={lat:center.lat,lng:center.lng};
-      }else if(zoomed){
-        var rect=map.getBoundingClientRect();
-        var lastX=drag.lastX-rect.left;
-        var lastY=drag.lastY-rect.top;
-        var anchorPoint=project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom);
-        var p=unproject(anchorPoint.x-(lastX-map.clientWidth/2),anchorPoint.y-(lastY-map.clientHeight/2),drag.nextZoom);
-        center={lat:Number(p.lat.toFixed(7)),lng:Number(p.lng.toFixed(7))};
+    if(drag&&((drag.mode==='pan'&&e.touches.length===0)||(drag.mode==='pinch'&&e.touches.length<2))){
+      if(drag.mode==='pan'){
+        var moved=Math.abs(drag.dx)+Math.abs(drag.dy)>3;
+        if(moved){
+          e.preventDefault();
+          e.stopPropagation();
+          var c=project(center.lat,center.lng,zoom);
+          var p=unproject(c.x-drag.dx,c.y-drag.dy,zoom);
+          center={lat:Number(p.lat.toFixed(7)),lng:Number(p.lng.toFixed(7))};
+          selected={lat:center.lat,lng:center.lng};
+          ignoreNextClickUntil=Date.now()+450;
+        }
+      }else{
+        e.preventDefault();
+        e.stopPropagation();
+        zoom=drag.nextZoom;
+        ignoreNextClickUntil=Date.now()+450;
       }
-      zoom=drag.nextZoom;
       layer.style.transform='';layer.style.transformOrigin='';render();
-      if((moved||zoomed)&&window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'location',latitude:center.lat,longitude:center.lng}));
+      if(drag.mode==='pan'&&moved&&window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'location',latitude:center.lat,longitude:center.lng}));
       if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:false}));
       drag=null;
     }
