@@ -65,7 +65,6 @@ export default function FarmerShell(props: {
   const [area, setArea] = useState('');
   const [locationDescription, setLocationDescription] = useState('');
   const [useFarmAddress, setUseFarmAddress] = useState(true);
-  const [reportConsent, setReportConsent] = useState(false);
   const [communityShare, setCommunityShare] = useState(false);
   const [photos, setPhotos] = useState<QueuedPhoto[]>([]);
   const [reportError, setReportError] = useState('');
@@ -398,10 +397,6 @@ export default function FarmerShell(props: {
       setReportError('Enter the observed date in YYYY-MM-DD format.');
       return;
     }
-    if (!reportConsent) {
-      setReportError('Consent is required before you send this report to SRA.');
-      return;
-    }
     setReportBusy(true);
     setReportError('');
     const item: QueuedReport = {
@@ -433,7 +428,6 @@ export default function FarmerShell(props: {
       setLocationDescription('');
       setSeverity('Mild');
       setUseFarmAddress(true);
-      setReportConsent(false);
       setCommunityShare(false);
       setPhotos([]);
       setObservedAt(localDate());
@@ -678,13 +672,8 @@ export default function FarmerShell(props: {
                   {photos.length === 0 ? <Text style={styles.helperText}>Add up to five photos of the affected stalks, leaves, or field area.</Text> : null}
                 </Card>
                 <Card>
-                  <Text style={styles.cardTitle}>Consent & sharing</Text>
-                  <ToggleLine
-                    title="I give SRA permission to review these observations and photos. *"
-                    description="Required to send a report. You can submit while offline; it will wait securely on this device."
-                    value={reportConsent}
-                    onValueChange={setReportConsent}
-                  />
+                  <Text style={styles.cardTitle}>Report sharing</Text>
+                  <PrivacyNote text="Submitting sends this report and its photos to authorized SRA staff for review. This happens automatically. You can choose separately whether to share an anonymized observation with other farmers below." />
                   <ToggleLine
                     title="Share an anonymized observation with the farmer community"
                     description="Optional. Other farmers can see this report and its attached photos. Your name, farm name, barangay, and exact location stay private."
