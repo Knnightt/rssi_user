@@ -113,7 +113,7 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
 #attribution{position:absolute;right:4px;bottom:2px;z-index:4;padding:2px 4px;background:rgba(255,255,255,.8);font-size:9px;color:#39444a}
 #tile-message{display:none;position:absolute;z-index:5;left:8px;right:52px;top:8px;padding:7px 9px;border-radius:5px;background:rgba(255,255,255,.94);font-size:11px;color:#46545b}
 </style></head><body>
-<div id="map" aria-label="Use two fingers to move and pinch to zoom the map under the centered farm pin."><div id="tiles"></div><div id="pin"></div>
+<div id="map" aria-label="Tap the map to place the farm pin, or use two fingers to move and zoom the map under the centered pin."><div id="tiles"></div><div id="pin"></div>
 <button class="zoom plus" aria-label="Zoom in">+</button><button class="zoom minus" aria-label="Zoom out">−</button>
 <div id="tile-message">Map tiles did not load. Check your internet connection.</div>
 <div id="attribution">© OpenStreetMap contributors</div></div>
@@ -129,6 +129,7 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
   var drag=null;
   var firstRender=true;
   var renderVersion=0;
+  var ignoreNextClickUntil=0;
 
   function project(lat,lng,level){
     var scale=256*Math.pow(2,level);
@@ -187,6 +188,19 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
     else placePin();
   };
   window.clearFarmPin=function(){selected=null;placePin();};
+  map.addEventListener('click',function(e){
+    if(Date.now()<ignoreNextClickUntil){ignoreNextClickUntil=0;return;}
+    if(e.target.closest('.zoom'))return;
+    var rect=map.getBoundingClientRect();
+    var c=project(center.lat,center.lng,zoom);
+    var point=unproject(c.x+e.clientX-rect.left-map.clientWidth/2,
+      c.y+e.clientY-rect.top-map.clientHeight/2,zoom);
+    center={lat:Number(point.lat.toFixed(7)),lng:Number(point.lng.toFixed(7))};
+    selected={lat:center.lat,lng:center.lng};
+    zoom=Math.max(14,zoom);
+    render();
+    if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'location',latitude:center.lat,longitude:center.lng}));
+  });
   map.addEventListener('touchstart',function(e){
     if(e.touches.length!==2){
       if(drag&&window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'gesture',active:false}));
@@ -224,6 +238,7 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
       e.stopPropagation();
       var moved=Math.abs(drag.dx)+Math.abs(drag.dy)>3;
       var zoomed=drag.nextZoom!==drag.startZoom;
+      if(moved||zoomed)ignoreNextClickUntil=Date.now()+400;
       if(moved){
         var p=unproject(project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom).x-drag.dx,
           project(drag.anchor.lat,drag.anchor.lng,drag.nextZoom).y-drag.dy,drag.nextZoom);

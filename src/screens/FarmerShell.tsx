@@ -435,7 +435,7 @@ export default function FarmerShell(props: {
             onValueChange={value => {setFarmLocationConsent(value); if (!value) setFarmCoordinates(null);}}
           />
           {farmLocationConsent ? <>
-            <Text style={styles.helperText}>{t('Choose your exact farm location on the map. Use two fingers to move the map under the fixed center pin. Map tiles need internet.')}</Text>
+            <Text style={styles.helperText}>{t('Tap the map to place the pin, or use two fingers to move the map under the center pin. Map tiles need internet.')}</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
             <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
               setFarmLocationBusy(true);
@@ -488,7 +488,7 @@ export default function FarmerShell(props: {
             onValueChange={setFarmLocationConsent}
           />
           {farmValues.barangay || farmCoordinates ? <>
-            <Text style={styles.helperText}>Your current location is pinned automatically. Use two fingers to move the map under the center pin to locate your farm.</Text>
+            <Text style={styles.helperText}>Tap the map to place the farm pin, or use two fingers to move the map under the center pin.</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
             {farmLocationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
             {farmCoordinates ? <>
