@@ -2,7 +2,9 @@ export type Tab = 'home' | 'farms' | 'report' | 'history' | 'community' | 'profi
 
 export type RegisterFields = {
   name: string;
+  username: string;
   email: string;
+  phoneNumber: string;
   password: string;
   propertyName: string;
   province: string;

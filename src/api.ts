@@ -5,7 +5,9 @@ export type Farmer = {
   id: number;
   reference: string;
   name: string;
-  email: string;
+  username?: string | null;
+  phone_number?: string | null;
+  email: string | null;
   status: string;
   profile_photo_url?: string | null;
 };
@@ -56,6 +58,7 @@ export type CommunityUpdate = {
   verification_status: string;
   confirmation_count: number;
   confirmed_by_me: boolean;
+  photos?: Array<{id: number; name: string; url: string}>;
 };
 
 export type AuthResponse = {
@@ -139,9 +142,11 @@ export class ApiError extends Error {
 
 function humanizeCode(code: string): string {
   const messages: Record<string, string> = {
-    invalid_credentials: 'That email and password did not match.',
+    invalid_credentials: 'That username and password did not match.',
     account_unavailable: 'This account is not available. Contact SRA support.',
     email_already_registered: 'An account already uses this email address.',
+    username_already_registered: 'That username is already in use. Choose another.',
+    invalid_philippine_mobile_number: 'Enter a valid Philippine mobile number.',
     unauthorized: 'Your session expired. Please sign in again.',
     precise_location_disabled: 'Precise farm pins are disabled by the workspace.',
     property_not_found: 'Select one of your saved farms and try again.',

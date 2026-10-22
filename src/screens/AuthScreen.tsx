@@ -1,4 +1,4 @@
-import React, {useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from 'react-native';
 import {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -12,6 +12,7 @@ import {RegisterFields} from '../types';
 import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ProfilePhotoPicker, ToggleLine} from '../components/UI';
 import {LocalizedText as Text} from '../i18n';
 import {useTheme} from '../theme';
+import {readSecure, removeSecure, writeSecure} from '../secureStorage';
 
 export default function AuthScreen({
   onAuthenticated,
@@ -24,16 +25,17 @@ export default function AuthScreen({
 }) {
   useTheme();
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
+  const [loginUsername, setLoginUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [registerStep, setRegisterStep] = useState(0);
+  const [addFarm, setAddFarm] = useState(false);
   const [fields, setFields] = useState<RegisterFields>({
-    name: '', email: '', password: '', propertyName: '', province: 'Negros Oriental',
+    name: '', username: '', email: '', phoneNumber: '', password: '', propertyName: '', province: 'Negros Oriental',
     municipality: '', barangay: '', address: '', sizeHectares: '',
   });
   const [profilePhoto, setProfilePhoto] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialMessage);
-  const [consent, setConsent] = useState(false);
   const [preciseLocationConsent, setPreciseLocationConsent] = useState(false);
   const [coordinates, setCoordinates] = useState<FarmCoordinates | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
@@ -44,6 +46,14 @@ export default function AuthScreen({
   const addressLookupRevision = useRef(0);
   const locationRequestRevision = useRef(0);
   const isRegistering = mode === 'register';
+
+  useEffect(() => {
+    let mounted = true;
+    void readSecure('last-farmer-username').then(value => {
+      if (mounted && value) setLoginUsername(value);
+    }).catch(() => undefined);
+    return () => { mounted = false; };
+  }, []);
 
   const setField = (key: keyof RegisterFields, value: string) => {
     setFields(current => ({...current, [key]: value}));
@@ -163,54 +173,87 @@ export default function AuthScreen({
     void captureLocation();
   };
 
-  const submit = async () => {
-    const currentEmail = isRegistering ? fields.email : email;
-    const currentPassword = isRegistering ? fields.password : password;
-    if (!currentEmail.trim() || !currentPassword) {
-      setError('Enter your email and password to continue.');
+  const continueRegistration = () => {
+    setError('');
+    if (registerStep === 0) {
+      if (!fields.name.trim()) {
+        setError('Enter your full name.');
+        return;
+      }
+      setRegisterStep(1);
       return;
     }
-    const farmArea = Number(fields.sizeHectares);
-    if (isRegistering && (!fields.name.trim() || !fields.propertyName.trim() || !fields.municipality.trim() || !fields.barangay.trim() || !fields.address.trim() || !fields.sizeHectares.trim() || !Number.isFinite(farmArea) || farmArea <= 0 || !consent)) {
-      setError('Add your name, farm, municipality, barangay, complete farm address, farm area greater than zero and reporting consent.');
+    if (registerStep === 1) {
+      const normalizedUsername = fields.username.trim().toLowerCase();
+      if (!/^[a-z0-9._-]{3,32}$/.test(normalizedUsername)) {
+        setError('Choose a username with 3–32 letters, numbers, dots, underscores or hyphens.');
+        return;
+      }
+      if (fields.password.length < 10) {
+        setError('Choose a password with at least 10 characters.');
+        return;
+      }
+      setField('username', normalizedUsername);
+      setRegisterStep(2);
       return;
     }
-    if (isRegistering && currentPassword.length < 10) {
-      setError('Choose a password with at least 10 characters.');
+    if (registerStep === 2) {
+      if (addFarm) {
+        const farmArea = Number(fields.sizeHectares);
+        if (!fields.propertyName.trim() || !fields.municipality.trim() || !fields.barangay.trim() || !fields.address.trim() || !fields.sizeHectares.trim() || !Number.isFinite(farmArea) || farmArea <= 0) {
+          setError('Complete the farm name, municipality, barangay, address and area, or choose to add the farm later.');
+          return;
+        }
+        if (preciseLocationConsent && !coordinates) {
+          setError('Choose a point on the map or use current location before saving consent.');
+          return;
+        }
+      }
+      setRegisterStep(3);
+    }
+  };
+
+  const finishRegistration = async () => {
+    const email = fields.email.trim().toLowerCase();
+    const phone = fields.phoneNumber.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter a valid email address.');
       return;
     }
-    if (isRegistering && preciseLocationConsent && !coordinates) {
-      setError('Choose a point on the map or use current location before saving consent.');
+    if (!phone) {
+      setError('Enter your phone number.');
       return;
     }
     setBusy(true);
     setError('');
     onMessage('');
     try {
-      const response = isRegistering
-        ? await apiRequest<AuthResponse>('/auth/register', undefined, {
-          method: 'POST',
-          body: JSON.stringify({
-            name: fields.name,
-            email: fields.email.trim().toLowerCase(),
-            password: fields.password,
-            propertyName: fields.propertyName,
-            province: fields.province,
-            municipality: fields.municipality,
-            barangay: fields.barangay || null,
-            address: fields.address.trim() || null,
-            sizeHectares: fields.sizeHectares ? Number(fields.sizeHectares) : null,
-            latitude: preciseLocationConsent ? coordinates?.latitude ?? null : null,
-            longitude: preciseLocationConsent ? coordinates?.longitude ?? null : null,
-            locationConsent: preciseLocationConsent,
-          }),
-        })
-        : await apiRequest<AuthResponse>('/auth/login', undefined, {
-          method: 'POST',
-          body: JSON.stringify({accountType: 'farmer', email: email.trim().toLowerCase(), password}),
+      const body: Record<string, unknown> = {
+        name: fields.name.trim(),
+        username: fields.username.trim().toLowerCase(),
+        phoneNumber: phone,
+        password: fields.password,
+        email,
+      };
+      if (addFarm) {
+        Object.assign(body, {
+          propertyName: fields.propertyName.trim(),
+          province: fields.province,
+          municipality: fields.municipality,
+          barangay: fields.barangay,
+          address: fields.address.trim(),
+          sizeHectares: Number(fields.sizeHectares),
+          latitude: preciseLocationConsent ? coordinates?.latitude ?? null : null,
+          longitude: preciseLocationConsent ? coordinates?.longitude ?? null : null,
+          locationConsent: preciseLocationConsent,
         });
+      }
+      const response = await apiRequest<AuthResponse>('/auth/register', undefined, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
       let photoUploadFailed = false;
-      if (isRegistering && profilePhoto) {
+      if (profilePhoto) {
         try {
           const uploaded = await uploadProfilePhoto(response.access_token, profilePhoto);
           response.user.profile_photo_url = uploaded.profile_photo_url;
@@ -218,13 +261,92 @@ export default function AuthScreen({
           photoUploadFailed = true;
         }
       }
+      await writeSecure('last-farmer-username', fields.username.trim().toLowerCase()).catch(() => undefined);
       await onAuthenticated(response);
       if (photoUploadFailed) onMessage('Your account was created, but the profile picture was not uploaded. You can add it later in My profile.');
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not create the account right now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signIn = async () => {
+    if (!loginUsername.trim() || !password) {
+      setError('Enter your username and password to continue.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    onMessage('');
+    try {
+      const identifier = loginUsername.trim().toLowerCase();
+      const response = await apiRequest<AuthResponse>('/auth/login', undefined, {
+        method: 'POST',
+        body: JSON.stringify({accountType: 'farmer', username: identifier, password}),
+      });
+      await writeSecure('last-farmer-username', identifier).catch(() => undefined);
+      await onAuthenticated(response);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not sign in right now.');
     } finally {
       setBusy(false);
     }
+  };
+
+  const renderFarmFields = () => <>
+    <Field label="Farm / plot name *" value={fields.propertyName} onChangeText={value => setField('propertyName', value)} placeholder="Farm name or landmark" autoCapitalize="words" />
+    <View style={styles.fieldRow}>
+      <View style={styles.fieldGrow}>
+        <Text style={styles.inputLabel}>Province</Text>
+        <View style={styles.choiceRow}>
+          {['Negros Oriental', 'Negros Occidental'].map(province => (
+            <Choice key={province} label={province === 'Negros Oriental' ? 'Oriental' : 'Occidental'} active={fields.province === province} onPress={() => selectProvince(province)} compact />
+          ))}
+        </View>
+      </View>
+    </View>
+    <DropdownField
+      label="Municipality / city *"
+      value={fields.municipality}
+      options={municipalityOptions.map(item => item.name)}
+      placeholder="Select your municipality or city"
+      onSelect={selectMunicipality}
+    />
+    <View style={styles.fieldRow}>
+      <View style={styles.fieldGrow}><DropdownField label="Barangay *" value={fields.barangay} options={barangayOptions} placeholder={fields.municipality ? 'Select your barangay' : 'Select a municipality first'} disabled={!fields.municipality} onSelect={selectBarangay} /></View>
+      <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" /></View>
+    </View>
+    <Field label="Complete farm address *" value={fields.address} onChangeText={changeAddress} onBlur={() => void locateEnteredAddress()} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
+    <Text style={styles.helperText}>After you finish the address and leave this field, RSSI suggests a map pin. Review it and move the pin to your farm.</Text>
+    {addressLookupMessage ? <Text style={styles.helperText}>{addressLookupMessage}</Text> : null}
+    <Text style={[styles.inputLabel, styles.locationPickerTitle]}>Choose your exact farm location</Text>
+    <Notice text="After you choose a barangay, RSSI will place a pin at your current location. Use two fingers to move the map under the fixed center pin." tone="info" />
+    <LocationPicker value={coordinates} onChange={moveMapPin} />
+    {locationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
+    {locationMessage ? <Text style={styles.helperText}>{locationMessage}</Text> : null}
+    {coordinates ? <View style={styles.coordinatesWrap}>
+      <Text style={styles.coordinatesText}>Selected farm pin</Text>
+      <Text style={styles.coordinatesText}>{coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
+      {coordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(coordinates.accuracy)} m</Text> : null}
+    </View> : null}
+    <Text style={styles.helperText}>Map tiles require an internet connection.</Text>
+    <ToggleLine
+      title="Show this farm in SRA Map Monitoring"
+      description="Save a pin for authorized SRA staff only. Leave this off to keep the exact location private."
+      value={preciseLocationConsent}
+      onValueChange={setPreciseLocationConsent}
+    />
+    {preciseLocationConsent && !coordinates ? <Text style={styles.helperText}>Choose a point on the map or use current location before saving consent.</Text> : null}
+    {fields.barangay ? <Button label={locationBusy ? 'Getting location…' : 'Use my current location'} kind="light" onPress={() => void captureLocation()} disabled={locationBusy} loading={locationBusy} /> : null}
+  </>;
+
+  const registrationSteps = ['Your name', 'Login details', 'Farm registration', 'Profile information'];
+  const goBackStep = () => {
+    if (registerStep > 0) {
+      setRegisterStep(value => value - 1);
+    }
+    setError('');
   };
 
   return (
@@ -242,79 +364,54 @@ export default function AuthScreen({
           <View style={styles.authCard}><LanguageSwitcher /></View>
           <View style={styles.authCard}>
             <View style={styles.eyebrow}><Text style={styles.eyebrowText}>FARMER ACCOUNT</Text></View>
-            <Text style={styles.authTitle}>{isRegistering ? 'Create Farmer Account' : 'Welcome back'}</Text>
+            <Text style={styles.authTitle}>{isRegistering ? registrationSteps[registerStep] : 'Welcome back'}</Text>
             <Text style={styles.authSub}>
               {isRegistering
-                ? 'Register your own farm so your observations reach the SRA review team.'
+                ? 'Create your RSSI farmer account in a few quick steps.'
                 : 'Sign in to view your farms and report sugarcane observations.'}
             </Text>
             {error ? <Notice text={error} tone="error" /> : null}
-            {isRegistering ? (
-              <>
-                <Field label="Farmer name *" value={fields.name} onChangeText={value => setField('name', value)} placeholder="Enter your full name" autoCapitalize="words" />
+            {isRegistering ? <>
+              <View style={styles.authStepBadge}><Pill text={`STEP ${registerStep + 1} OF 4`} tone="blue" /><Text style={styles.helperText}>{registrationSteps[registerStep]}</Text></View>
+              {registerStep === 0 ? <>
+                <Field label="Full name *" value={fields.name} onChangeText={value => setField('name', value)} placeholder="Enter your full name" autoCapitalize="words" />
+                <Text style={styles.helperText}>Enter the name you use for your farmer account and reports.</Text>
+              </> : null}
+              {registerStep === 1 ? <>
+                <Field label="Username for login *" value={fields.username} onChangeText={value => setField('username', value.replace(/\s/g, '').toLowerCase())} placeholder="Choose a username" autoCapitalize="none" />
+                <Text style={styles.helperText}>Use this username whenever you sign in. Add your email address in profile information.</Text>
+                <Field label="Password (10 characters minimum) *" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry autoCapitalize="none" />
+              </> : null}
+              {registerStep === 2 ? <>
+                <Text style={styles.bodyText}>Would you like to register a farm now? You can add one later from your account.</Text>
+                <View style={styles.choiceRow}>
+                  <Choice label="Add a farm now" active={addFarm} onPress={() => setAddFarm(true)} compact />
+                  <Choice label="I’ll do this later" active={!addFarm} onPress={() => setAddFarm(false)} compact />
+                </View>
+                {addFarm ? renderFarmFields() : null}
+              </> : null}
+              {registerStep === 3 ? <>
+                <Field label="Email address *" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
+                <Text style={styles.helperText}>Your email is saved as account contact information. Sign-in always uses your username.</Text>
+                <Field label="Phone number *" value={fields.phoneNumber} onChangeText={value => setField('phoneNumber', value)} placeholder="09XX XXX XXXX" keyboardType="numeric" autoCapitalize="none" />
                 <ProfilePhotoPicker name={fields.name} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={busy} />
-                <Field label="Farm / plot location *" value={fields.propertyName} onChangeText={value => setField('propertyName', value)} placeholder="Farm name or landmark" autoCapitalize="words" />
-                <View style={styles.fieldRow}>
-                  <View style={styles.fieldGrow}>
-                    <Text style={styles.inputLabel}>Province</Text>
-                    <View style={styles.choiceRow}>
-                      {['Negros Oriental', 'Negros Occidental'].map(province => (
-                        <Choice key={province} label={province === 'Negros Oriental' ? 'Oriental' : 'Occidental'} active={fields.province === province} onPress={() => selectProvince(province)} compact />
-                      ))}
-                    </View>
-                  </View>
-                </View>
-                <DropdownField
-                  label="Municipality / city *"
-                  value={fields.municipality}
-                  options={municipalityOptions.map(item => item.name)}
-                  placeholder="Select your municipality or city"
-                  onSelect={selectMunicipality}
-                />
-                <View style={styles.fieldRow}>
-                  <View style={styles.fieldGrow}><DropdownField label="Barangay *" value={fields.barangay} options={barangayOptions} placeholder={fields.municipality ? 'Select your barangay' : 'Select a municipality first'} disabled={!fields.municipality} onSelect={selectBarangay} /></View>
-                  <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" /></View>
-                </View>
-                <Field label="Complete farm address *" value={fields.address} onChangeText={changeAddress} onBlur={() => void locateEnteredAddress()} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
-                <Text style={styles.helperText}>After you finish the address and leave this field, RSSI sends it to Geoapify through the RSSI server to suggest a map pin. Review the suggestion and move the pin to your exact farm location.</Text>
-                {addressLookupMessage ? <Text style={styles.helperText}>{addressLookupMessage}</Text> : null}
-                <Text style={[styles.inputLabel, {marginTop: 14}]}>Choose your exact farm location</Text>
-                <Notice text="After you choose a barangay, RSSI will place a pin at your current location. Use two fingers to move the map under the fixed center pin; touching the map will not drag the pin." tone="info" />
-                <LocationPicker value={coordinates} onChange={moveMapPin} />
-                {locationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
-                {locationMessage ? <Text style={styles.helperText}>{locationMessage}</Text> : null}
-                {coordinates ? <View style={{marginTop: 4}}>
-                  <Text style={styles.coordinatesText}>Selected farm pin</Text>
-                  <Text style={styles.coordinatesText}>{coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
-                  {coordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(coordinates.accuracy)} m</Text> : null}
-                </View> : null}
-                <Text style={styles.helperText}>Map tiles require an internet connection.</Text>
-                <ToggleLine
-                  title="Show this farm in SRA Map Monitoring"
-                  description="Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private."
-                  value={preciseLocationConsent}
-                  onValueChange={setPreciseLocationConsent}
-                />
-                {preciseLocationConsent && !coordinates ? <Text style={styles.helperText}>Choose a point on the map or use current location before saving consent.</Text> : null}
-                {fields.barangay ? <Button label={locationBusy ? 'Getting location…' : 'Use my current location'} kind="light" onPress={() => void captureLocation()} disabled={locationBusy} loading={locationBusy} /> : null}
-                <Field label="Email address" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
-                <Field label="Password (10 characters minimum)" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry />
-                <ToggleLine
-                  title="I agree to share my farm reports with SRA for review."
-                  description="Your precise property location stays private to authorized staff."
-                  value={consent}
-                  onValueChange={setConsent}
-                />
-              </>
-            ) : (
-              <>
-                <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
-                <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry />
-              </>
-            )}
-            <Button label={busy ? 'Connecting…' : isRegistering ? 'Register' : 'Sign in'} onPress={submit} disabled={busy || addressLookupBusy} loading={busy || addressLookupBusy} />
-            <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); setError('');}}>
-              <Text style={styles.linkText}>{isRegistering ? 'Already registered? Sign in' : 'New to RSSI? Register your farm'}</Text>
+                <Text style={styles.helperText}>When you create your account, RSSI will sign you in automatically.</Text>
+              </> : null}
+              <View style={styles.buttonRow}>
+                {registerStep > 0 ? <View style={styles.flex}><Button label="Back" kind="light" onPress={goBackStep} disabled={busy} /></View> : null}
+                <View style={styles.flex}><Button label={busy ? 'Creating account…' : registerStep === 3 ? 'Create account' : 'Next'} onPress={() => registerStep === 3 ? void finishRegistration() : continueRegistration()} disabled={busy || addressLookupBusy} loading={busy || addressLookupBusy} /></View>
+              </View>
+            </> : <>
+              {loginUsername ? <View style={styles.loginAccountCard}>
+                <Text style={styles.inputLabel}>Signing in as</Text>
+                <Text style={styles.loginAccountName}>{loginUsername}</Text>
+                <TouchableOpacity style={styles.authAccountLink} onPress={() => {setLoginUsername(''); void removeSecure('last-farmer-username');}}><Text style={styles.linkText}>Use another username</Text></TouchableOpacity>
+              </View> : <Field label="Username" value={loginUsername} onChangeText={setLoginUsername} placeholder="Your username" autoCapitalize="none" />}
+              <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry autoCapitalize="none" />
+              <Button label={busy ? 'Connecting…' : 'Sign in'} onPress={() => void signIn()} disabled={busy} loading={busy} />
+            </>}
+            <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); if (!isRegistering) setRegisterStep(0); setError('');}}>
+              <Text style={styles.linkText}>{isRegistering ? 'Already registered? Sign in' : 'New to RSSI? Create an account'}</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.authFooter}>

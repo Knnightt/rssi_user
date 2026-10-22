@@ -510,7 +510,7 @@ export default function FarmerShell(props: {
           {properties.length === 0 ? <EmptyState icon="⌖" title="No farms added yet" description="Add your farm to start reporting field observations." /> : null}
           {properties.map(property => <View key={property.id}>
             <FarmRow property={property} onPress={() => setSelectedFarm(property.id)} selected={selectedFarm === property.id} />
-            <TouchableOpacity style={{alignSelf: 'flex-end', paddingVertical: 7, paddingHorizontal: 10}} onPress={() => openFarmLocationEditor(property)} accessibilityRole="button">
+            <TouchableOpacity style={styles.farmMapAction} onPress={() => openFarmLocationEditor(property)} accessibilityRole="button">
               <Text style={styles.linkText}>{t('Set or edit map pin')} →</Text>
             </TouchableOpacity>
           </View>)}
@@ -566,7 +566,7 @@ export default function FarmerShell(props: {
             </View>
             <Card style={styles.statusCard}>
               <View style={styles.statusHead}>
-                <View style={[styles.statusDot, {backgroundColor: networkConnected && serverReachable ? C.green : C.amber}]} />
+                <View style={[styles.statusDot, networkConnected && serverReachable ? styles.onlineDot : styles.offlineDot]} />
                 <Text style={styles.statusTitle}>{dashboardStatus}</Text>
                 {busy ? <ActivityIndicator size="small" color={C.blue} /> : null}
               </View>
@@ -711,7 +711,7 @@ export default function FarmerShell(props: {
                   />
                   <ToggleLine
                     title="Share an anonymized observation with the farmer community"
-                    description="Optional. Your name, farm name, barangay, exact location and photos are never shared."
+                    description="Optional. Other farmers can see this report and its attached photos. Your name, farm name, barangay, and exact location stay private."
                     value={communityShare}
                     onValueChange={setCommunityShare}
                   />
@@ -798,7 +798,7 @@ export default function FarmerShell(props: {
                 {community.length === 0 ? (
                   <EmptyState icon="◎" title="No shared updates yet" description="When a farmer opts in to share an observation, it will appear here." />
                 ) : community.map(item => (
-                  <CommunityCard key={item.id} item={item} onConfirm={() => void props.onCommunityConfirmed(item.id)} disabled={!networkConnected || item.confirmed_by_me} />
+                  <CommunityCard key={item.id} item={item} token={props.token} onConfirm={() => void props.onCommunityConfirmed(item.id)} disabled={!networkConnected || item.confirmed_by_me} />
                 ))}
               </Card>
             )}
@@ -811,7 +811,7 @@ export default function FarmerShell(props: {
             <PageIntro eyebrow="ACCOUNT & PRIVACY" title="My profile" subtitle="Update your account information and default farm details." />
             <Card>
               <Text style={styles.cardTitle}>Personal information</Text>
-              <View style={[styles.profileHeader, {marginTop: 12}]}><Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
+              <View style={[styles.profileHeader, styles.profileHeaderSpaced]}><Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
               {profileEditing ? <>
                 <Field label="Full name" value={profileName} onChangeText={setProfileName} placeholder="Your name" autoCapitalize="words" />
                 <ProfilePhotoPicker name={profileName || user.name} photoUrl={user.profile_photo_url} token={token} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={profileBusy} />
@@ -821,6 +821,7 @@ export default function FarmerShell(props: {
               </> : <Button label="Edit profile" kind="light" onPress={() => {setProfileMessage(''); setProfilePhoto(null); setProfileEditing(true);}} />}
               {profileMessage ? <Notice text={profileMessage} tone={profileMessage.includes('updated') ? 'success' : 'error'} /> : null}
               <InfoRow label="Farmer reference" value={user.reference} />
+              <InfoRow label="Phone number" value={user.phone_number || 'Not provided'} />
               <InfoRow label="Account status" value={user.status} translateValue />
             </Card>
             <Card>
@@ -843,7 +844,7 @@ export default function FarmerShell(props: {
             <Card>
               <Text style={styles.cardTitle}>Data stored for offline use</Text>
               <Text style={styles.bodyText}>Your account session, saved farm details, last report list and unsent reports are stored in your device’s protected credential store. Unsent items sync when RSSI is reachable.</Text>
-              <Text style={[styles.bodyText, {marginTop: 12}]}>Community updates are not cached and cannot be opened offline.</Text>
+              <Text style={[styles.bodyText, styles.bodyTextSpaced]}>Community updates are not cached and cannot be opened offline.</Text>
             </Card>
             {notice ? <Notice text={notice} tone="info" /> : null}
             <Button label="Help & support" kind="light" onPress={() => setTab('support')} />
@@ -871,7 +872,7 @@ export default function FarmerShell(props: {
       <View style={styles.appHeader}>
         <View style={styles.headerBrand}><BrandMark /><View style={styles.headerBrandCopy}><Text style={styles.headerBrandName} numberOfLines={1}>{screenTitle}</Text><Text style={styles.headerBrandSub} numberOfLines={1}>RSSI · Negros Oriental & Negros Occidental</Text></View></View>
         <TouchableOpacity style={styles.headerAccount} onPress={() => setTab('profile')}>
-          <View style={[styles.headerOnlineDot, {backgroundColor: networkConnected && serverReachable ? C.green : C.amber}]} />
+          <View style={[styles.headerOnlineDot, networkConnected && serverReachable ? styles.onlineDot : styles.offlineDot]} />
           <NativeText style={styles.headerAccountText} numberOfLines={1}>{user.name.split(' ')[0]}</NativeText>
           <Avatar name={user.name} photoUrl={user.profile_photo_url} token={token} size={31} />
         </TouchableOpacity>

@@ -6,9 +6,16 @@ import {CommunityUpdate, FarmProperty, FieldReport, getProfilePhotoUri} from '..
 import {Language, LocalizedText as Text, useLanguage} from '../i18n';
 import {QueuedReport} from '../reportQueue';
 import {C, styles, ThemeMode, useTheme} from '../theme';
+import {
+  avatarInitialStyle,
+  avatarSizeStyle,
+  backgroundStyle,
+  severityBadgeStyle,
+  textColorStyle,
+} from '../../assets/styles/dynamicStyles';
 
 export function LoadingScreen() {
-  return <SafeAreaView style={styles.loadingRoot}><BrandMark large /><ActivityIndicator color={C.blue} size="large" style={{marginTop: 18}} /><Text style={styles.loadingText}>Opening your RSSI workspace…</Text></SafeAreaView>;
+  return <SafeAreaView style={styles.loadingRoot}><BrandMark large /><ActivityIndicator color={C.blue} size="large" style={styles.loadingSpinner} /><Text style={styles.loadingText}>Opening your RSSI workspace…</Text></SafeAreaView>;
 }
 
 export function BrandMark({large = false}: {large?: boolean}) {
@@ -36,6 +43,7 @@ export function Field(props: {
   secureTextEntry?: boolean;
   keyboardType?: 'default' | 'email-address' | 'decimal-pad' | 'numeric' | 'url';
   multiline?: boolean;
+  maxLength?: number;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   onBlur?: () => void;
 }) {
@@ -51,6 +59,7 @@ export function Field(props: {
       secureTextEntry={props.secureTextEntry}
       keyboardType={props.keyboardType || 'default'}
       multiline={props.multiline}
+      maxLength={props.maxLength}
       autoCapitalize={props.autoCapitalize || 'sentences'}
       autoCorrect={!props.secureTextEntry && props.keyboardType !== 'email-address'}
       style={[styles.input, props.multiline && styles.multilineInput]}
@@ -113,11 +122,11 @@ export function EmptyState({icon, title, description}: {icon: string; title: str
 export function SummaryCard({label, value, icon, tone}: {label: string; value: string; icon: string; tone: 'green' | 'blue' | 'amber'}) {
   const color = tone === 'green' ? C.green : tone === 'amber' ? C.amber : C.blue;
   const background = tone === 'green' ? C.greenSoft : tone === 'amber' ? C.amberSoft : C.paleBlue;
-  return <View style={styles.summaryCard}><View style={[styles.summaryIcon, {backgroundColor: background}]}><Text style={[styles.summaryIconText, {color}]}>{icon}</Text></View><Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>;
+  return <View style={styles.summaryCard}><View style={[styles.summaryIcon, backgroundStyle(background)]}><Text style={[styles.summaryIconText, textColorStyle(color)]}>{icon}</Text></View><Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>;
 }
 
 export function QuickAction({icon, label, color, onPress}: {icon: string; label: string; color: string; onPress: () => void}) {
-  return <TouchableOpacity style={styles.quickAction} onPress={onPress}><View style={[styles.quickIcon, {backgroundColor: `${color}14`}]}><Text style={[styles.quickIconText, {color}]}>{icon}</Text></View><Text style={styles.quickLabel}>{label}</Text><Text style={styles.quickArrow}>›</Text></TouchableOpacity>;
+  return <TouchableOpacity style={styles.quickAction} onPress={onPress}><View style={[styles.quickIcon, backgroundStyle(`${color}14`)]}><Text style={[styles.quickIconText, textColorStyle(color)]}>{icon}</Text></View><Text style={styles.quickLabel}>{label}</Text><Text style={styles.quickArrow}>›</Text></TouchableOpacity>;
 }
 
 export function FarmRow({property, onPress, selected}: {property: FarmProperty; onPress: () => void; selected: boolean}) {
@@ -133,18 +142,13 @@ export function SeverityBadge({severity, range: reportedRange}: {severity: strin
   const {t} = useLanguage();
   const {resolvedTheme} = useTheme();
   const normalized = severity === 'Low' ? 'Mild' : severity;
-  const palette: Record<string, {label: string; range: string; color: string; background: string; darkColor: string; darkBackground: string}> = {
-    Mild: {label: 'Mild', range: '1–20%', color: '#1D4ED8', background: '#EFF6FF', darkColor: '#8AB8FF', darkBackground: '#1B3049'},
-    Moderate: {label: 'Moderate', range: '21–50%', color: '#854D0E', background: '#FEF3C7', darkColor: '#F4CF70', darkBackground: '#40351D'},
-    Severe: {label: 'Severe', range: '51–70%', color: '#C2410C', background: '#FFEDD5', darkColor: '#FFAB72', darkBackground: '#432D20'},
-    'Highly severe': {label: 'Highly severe', range: '71–100%', color: '#B91C1C', background: '#FEE2E2', darkColor: '#FF969C', darkBackground: '#42272D'},
-  };
-  const style = palette[normalized];
-  const range = reportedRange || style?.range;
-  const label = t(style?.label || normalized || 'Not assessed');
-  const text = style ? `${label}${range ? ` · ${range}` : ''}` : label;
-  return <View style={[styles.pill, {backgroundColor: style ? (resolvedTheme === 'dark' ? style.darkBackground : style.background) : (resolvedTheme === 'dark' ? '#293849' : '#EEF1F5')}]} accessible accessibilityRole="text" accessibilityLabel={style ? `${label}${range ? `, ${range} ${t('crop damage')}` : ''}` : text}>
-    <Text style={[styles.pillText, {color: style ? (resolvedTheme === 'dark' ? style.darkColor : style.color) : (resolvedTheme === 'dark' ? '#a8b7c7' : '#64748B')}]}>{text}</Text>
+  const style = severityBadgeStyle(normalized, resolvedTheme === 'dark');
+  const range = reportedRange || style.range;
+  const label = t(style.label || normalized || 'Not assessed');
+  const hasSeverity = style.label !== undefined;
+  const text = hasSeverity ? `${label}${range ? ` · ${range}` : ''}` : label;
+  return <View style={[styles.pill, backgroundStyle(style.backgroundColor)]} accessible accessibilityRole="text" accessibilityLabel={hasSeverity ? `${label}${range ? `, ${range} ${t('crop damage')}` : ''}` : text}>
+    <Text style={[styles.pillText, textColorStyle(style.color)]}>{text}</Text>
   </View>;
 }
 
@@ -160,18 +164,30 @@ export function ReportRow({report, onPress}: {report: FieldReport; onPress?: () 
 
 export function QueuedReportRow({item}: {item: QueuedReport}) {
   return <View style={styles.reportRow}>
-    <View style={[styles.reportRowIcon, {backgroundColor: C.amberSoft}]}><Text style={[styles.reportRowIconText, {color: C.amber}]}>↻</Text></View>
+    <View style={[styles.reportRowIcon, styles.queuedReportIcon]}><Text style={[styles.reportRowIconText, styles.queuedReportIconText]}>↻</Text></View>
     <View style={styles.flex}><NativeText style={styles.reportRowName}>{item.propertyName}</NativeText><NativeText style={styles.reportRowMeta}>{item.propertyMunicipality}, {item.propertyProvince}</NativeText><Text style={styles.reportRowSub}>{item.photos.length > 0 ? `Waiting to upload ${item.photos.length} photo${item.photos.length === 1 ? '' : 's'}` : 'Waiting for server connection'}</Text>{item.lastError ? <NativeText style={styles.queueError}>{item.lastError}</NativeText> : null}</View>
     <View style={styles.reportRowBadges}><SeverityBadge severity={String(item.body.farmerSeverity || 'Not assessed')} /><Pill text="Pending" tone="amber" /></View>
   </View>;
 }
 
-export function CommunityCard({item, onConfirm, disabled}: {item: CommunityUpdate; onConfirm: () => void; disabled: boolean}) {
+export function CommunityCard({item, onConfirm, disabled, token}: {item: CommunityUpdate; onConfirm: () => void; disabled: boolean; token: string}) {
   const {t} = useLanguage();
   return <View style={styles.communityCard}>
     <View style={styles.communityHeader}><SeverityBadge severity={item.farmer_severity} range={item.farmer_severity_range} /><NativeText style={styles.communityDate}>{item.observed_at} · {item.municipality}, {item.province}</NativeText></View>
     <NativeText style={styles.communityTitle}>{item.observations}</NativeText>
     <NativeText style={styles.bodyText}>{item.damage_description}</NativeText>
+    {item.photos?.length ? <View style={styles.communityPhotoGrid}>
+      {item.photos.map((photo, index) => {
+        const uri = getProfilePhotoUri(photo.url);
+        return uri ? <Image
+          key={photo.id}
+          source={{uri, headers: {Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true'}}}
+          style={styles.communityPhoto}
+          resizeMode="cover"
+          accessibilityLabel={t(`Shared observation photo ${index + 1}`)}
+        /> : null;
+      })}
+    </View> : null}
     <View style={styles.communityFoot}><Text style={styles.communityStatus}>{t('SRA status')}: {t(item.verification_status)}</Text><Text style={styles.communityStatus}>{t(`${item.confirmation_count} agreed`)}</Text></View>
     <Button label={item.confirmed_by_me ? 'You agreed with this observation' : 'I observed something similar'} onPress={onConfirm} disabled={disabled} kind={item.confirmed_by_me ? 'light' : 'light'} />
     <Text style={styles.helperText}>Agreement is not an official verification.</Text>
@@ -192,8 +208,8 @@ export function Avatar({name, photoUrl, localUri, token, size = 48}: {
 }) {
   const remoteUri = getProfilePhotoUri(photoUrl);
   const uri = localUri || remoteUri;
-  return <View style={[styles.avatar, {width: size, height: size, borderRadius: size / 2}]}>
-    {uri ? <Image source={{uri, ...(remoteUri && !localUri && token ? {headers: {Authorization: `Bearer ${token}`}} : {})}} resizeMode="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, {fontSize: Math.max(13, Math.round(size * 0.42))}]}>{name.trim().charAt(0).toUpperCase()}</Text>}
+  return <View style={[styles.avatar, avatarSizeStyle(size)]}>
+    {uri ? <Image source={{uri, ...(remoteUri && !localUri && token ? {headers: {Authorization: `Bearer ${token}`}} : {})}} resizeMode="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, avatarInitialStyle(size)]}>{name.trim().charAt(0).toUpperCase()}</Text>}
   </View>;
 }
 
@@ -255,14 +271,14 @@ export function NavButton({icon, label, active, onPress, badge = 0}: {icon: stri
 
 export function LanguageSwitcher({title = true}: {title?: boolean}) {
   const {language, setLanguage, t} = useLanguage();
-  return <View style={{marginTop: 10}}>
+  return <View style={styles.settingGroup}>
     {title ? <><Text style={styles.inputLabel}>{t('App language')}</Text><Text style={styles.helperText}>{t('Choose the language used in the app.')}</Text></> : null}
-    <View style={{flexDirection: 'row', gap: 8, marginTop: 8}}>
+    <View style={styles.languageOptionsRow}>
       {(['en', 'tl'] as Language[]).map(option => {
         const selected = language === option;
         const label = option === 'en' ? 'English' : 'Tagalog';
-        return <TouchableOpacity key={option} accessibilityRole="button" accessibilityState={{selected}} onPress={() => void setLanguage(option)} style={{flex: 1, borderWidth: 1, borderColor: selected ? C.blue : C.line, backgroundColor: selected ? C.paleBlue : C.paper, borderRadius: 9, paddingVertical: 12, alignItems: 'center'}}>
-          <Text style={{fontSize: 13, fontWeight: '800', color: selected ? C.blue : C.ink}}>{label}</Text>
+        return <TouchableOpacity key={option} accessibilityRole="button" accessibilityState={{selected}} onPress={() => void setLanguage(option)} style={[styles.settingOption, styles.settingOptionLanguage, selected && styles.settingOptionActive]}>
+          <Text style={[styles.settingOptionText, selected && styles.settingOptionTextActive]}>{label}</Text>
         </TouchableOpacity>;
       })}
     </View>
@@ -277,14 +293,14 @@ export function ThemeSwitcher() {
     {mode: 'light', label: 'Light'},
     {mode: 'dark', label: 'Dark'},
   ];
-  return <View style={{marginTop: 10}}>
+  return <View style={styles.settingGroup}>
     <Text style={styles.inputLabel}>{t('Appearance')}</Text>
     <Text style={styles.helperText}>{t('Choose system, light, or dark appearance.')}</Text>
-    <View style={{flexDirection: 'row', gap: 7, marginTop: 8}}>
+    <View style={styles.themeOptionsRow}>
       {options.map(option => {
         const selected = mode === option.mode;
-        return <TouchableOpacity key={option.mode} accessibilityRole="button" accessibilityState={{selected}} accessibilityLabel={t(option.label)} onPress={() => void setMode(option.mode)} style={{flex: 1, borderWidth: 1, borderColor: selected ? C.blue : C.line, backgroundColor: selected ? C.paleBlue : C.paper, borderRadius: 9, paddingVertical: 11, alignItems: 'center'}}>
-          <Text style={{fontSize: 12, fontWeight: '800', color: selected ? C.blue : C.ink}}>{t(option.label)}</Text>
+        return <TouchableOpacity key={option.mode} accessibilityRole="button" accessibilityState={{selected}} accessibilityLabel={t(option.label)} onPress={() => void setMode(option.mode)} style={[styles.settingOption, styles.settingOptionTheme, selected && styles.settingOptionActive]}>
+          <Text style={[styles.settingOptionText, styles.settingOptionTextTheme, selected && styles.settingOptionTextActive]}>{t(option.label)}</Text>
         </TouchableOpacity>;
       })}
     </View>
