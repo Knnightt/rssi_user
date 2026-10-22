@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Image, Platform, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
+import {Image, Platform, RefreshControl, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {Asset} from 'react-native-image-picker';
@@ -55,6 +55,7 @@ export default function FarmerShell(props: {
   const [farmLocationBusy, setFarmLocationBusy] = useState(false);
   const farmLocationRequest = useRef(0);
   const [farmMapGestureActive, setFarmMapGestureActive] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [locationEditProperty, setLocationEditProperty] = useState<FarmProperty | null>(null);
   const [selectedFarm, setSelectedFarm] = useState<number | null>(properties[0]?.id ?? null);
   const [observedAt, setObservedAt] = useState(localDate());
@@ -91,6 +92,17 @@ export default function FarmerShell(props: {
   }, [user.name]);
 
   const selectedProperty = properties.find(property => property.id === selectedFarm) || properties[0];
+  const refreshData = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await props.onRefresh();
+    } catch {
+      onMessage('Could not refresh RSSI data. Check your connection and try again.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const filteredReports = reports.filter(report => {
     const query = reportSearch.trim().toLocaleLowerCase();
     const matchesQuery = !query || [report.code, report.property_name, report.province, report.municipality, report.observations, report.verification_status]
@@ -855,6 +867,7 @@ export default function FarmerShell(props: {
         contentContainerStyle={styles.screenContent}
         keyboardShouldPersistTaps="handled"
         scrollEnabled={!farmMapGestureActive}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshData} />}
       >
         {renderCurrentScreen()}
         <View style={styles.bottomSpacer} />

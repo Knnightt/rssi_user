@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {ActivityIndicator, Image, Switch, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import {Asset, launchImageLibrary} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -41,6 +41,7 @@ export function Field(props: {
   onChangeText: (value: string) => void;
   placeholder?: string;
   secureTextEntry?: boolean;
+  showPasswordToggle?: boolean;
   keyboardType?: 'default' | 'email-address' | 'decimal-pad' | 'numeric' | 'url';
   multiline?: boolean;
   maxLength?: number;
@@ -49,23 +50,40 @@ export function Field(props: {
   onBlur?: () => void;
 }) {
   const {t} = useLanguage();
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const canTogglePassword = Boolean(props.secureTextEntry && props.showPasswordToggle);
   return <View style={styles.fieldWrap}>
     <Text style={styles.inputLabel}>{t(props.label)}</Text>
-    <TextInput
-      value={props.value}
-      onChangeText={props.onChangeText}
-      onBlur={props.onBlur}
-      placeholder={props.placeholder ? t(props.placeholder) : undefined}
-      placeholderTextColor="#98A5B8"
-      secureTextEntry={props.secureTextEntry}
-      keyboardType={props.keyboardType || 'default'}
-      multiline={props.multiline}
-      maxLength={props.maxLength}
-      autoCapitalize={props.autoCapitalize || 'sentences'}
-      autoCorrect={props.autoCorrect ?? (!props.secureTextEntry && props.keyboardType !== 'email-address')}
-      style={[styles.input, props.multiline && styles.multilineInput]}
-      textAlignVertical={props.multiline ? 'top' : 'center'}
-    />
+    <View style={{position: 'relative', justifyContent: 'center'}}>
+      <TextInput
+        value={props.value}
+        onChangeText={props.onChangeText}
+        onBlur={props.onBlur}
+        placeholder={props.placeholder ? t(props.placeholder) : undefined}
+        placeholderTextColor="#98A5B8"
+        secureTextEntry={props.secureTextEntry && !passwordVisible}
+        keyboardType={props.keyboardType || 'default'}
+        multiline={props.multiline}
+        maxLength={props.maxLength}
+        autoCapitalize={props.autoCapitalize || 'sentences'}
+        autoCorrect={props.autoCorrect ?? (!props.secureTextEntry && props.keyboardType !== 'email-address')}
+        style={[styles.input, props.multiline && styles.multilineInput, canTogglePassword && {paddingRight: 52}]}
+        textAlignVertical={props.multiline ? 'top' : 'center'}
+      />
+      {canTogglePassword ? <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}
+        accessibilityState={{selected: passwordVisible}}
+        onPress={() => setPasswordVisible(visible => !visible)}
+        style={{position: 'absolute', right: 12, height: 44, minWidth: 32, alignItems: 'center', justifyContent: 'center'}}
+        hitSlop={8}
+      >
+        <View style={{width: 20, height: 14, borderWidth: 1.7, borderColor: '#667B8C', borderRadius: 10, alignItems: 'center', justifyContent: 'center'}}>
+          <View style={{width: 5, height: 5, borderRadius: 3, backgroundColor: '#667B8C'}} />
+          {!passwordVisible ? <View style={{position: 'absolute', width: 23, height: 1.7, backgroundColor: '#667B8C', transform: [{rotate: '-42deg'}]}} /> : null}
+        </View>
+      </TouchableOpacity> : null}
+    </View>
   </View>;
 }
 

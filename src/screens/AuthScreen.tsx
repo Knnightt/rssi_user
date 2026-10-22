@@ -422,7 +422,7 @@ export default function AuthScreen({
               </View>
             </> : <>
               <Field label="Username" value={loginUsername} onChangeText={setLoginUsername} placeholder="Your username" autoCapitalize="none" autoCorrect={false} />
-              <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry autoCapitalize="none" />
+              <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry showPasswordToggle autoCapitalize="none" />
               <Button label={busy ? 'Connecting…' : 'Sign in'} onPress={() => void signIn()} disabled={busy} loading={busy} />
             </>}
             <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); if (!isRegistering) setRegisterStep(0); setError('');}}>

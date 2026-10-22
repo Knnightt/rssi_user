@@ -61,6 +61,13 @@ export default function AppContent() {
     setTab(value);
   }, []);
 
+  const refreshCurrentScreen = useCallback(async () => {
+    await refreshFromServer();
+    if (tab === 'community') {
+      await loadCommunity();
+    }
+  }, [refreshFromServer, loadCommunity, tab]);
+
   const signOut = useCallback(async () => {
     await signOutSession(connectivity.networkConnected);
     clearWorkspace();
@@ -107,7 +114,7 @@ export default function AppContent() {
       token={token}
       onReportQueued={handleReportQueued}
       onSync={() => syncAndRefresh(true)}
-      onRefresh={refreshFromServer}
+      onRefresh={refreshCurrentScreen}
       onLoadCommunity={loadCommunity}
       onSignOut={signOut}
       onUpdateFarmerName={updateFarmerName}
