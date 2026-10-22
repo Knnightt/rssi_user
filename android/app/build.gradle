@@ -62,6 +62,17 @@ react {
  */
 def enableProguardInReleaseBuilds = false
 
+// Release signing material stays outside source control in android/keystore.properties.
+def releaseKeystorePropertiesFile = rootProject.file("keystore.properties")
+def releaseKeystoreProperties = new Properties()
+if (releaseKeystorePropertiesFile.isFile()) {
+    releaseKeystorePropertiesFile.withInputStream { releaseKeystoreProperties.load(it) }
+}
+def releaseSigningFields = ["storeFile", "storePassword", "keyAlias", "keyPassword"]
+def hasReleaseSigning = releaseSigningFields.every {
+    releaseKeystoreProperties.getProperty(it)?.trim()
+}
+
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
  *
@@ -95,6 +106,14 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(releaseKeystoreProperties.getProperty("storeFile"))
+                storePassword releaseKeystoreProperties.getProperty("storePassword")
+                keyAlias releaseKeystoreProperties.getProperty("keyAlias")
+                keyPassword releaseKeystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
         debug {
@@ -103,14 +122,35 @@ android {
             manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Never sign a production artifact with the public debug key.
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             // Production installations should use HTTPS.
             manifestPlaceholders = [usesCleartextTraffic: "false"]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
+    }
+}
+
+def verifyReleaseSigning = {
+    if (!hasReleaseSigning) {
+        throw new GradleException("Release signing is not configured. Copy android/keystore.properties.example to android/keystore.properties and fill in your private signing details.")
+    }
+
+    def keystoreFile = rootProject.file(releaseKeystoreProperties.getProperty("storeFile"))
+    if (!keystoreFile.isFile()) {
+        throw new GradleException("Release keystore not found at ${keystoreFile}. Create or restore your private release keystore before building.")
+    }
+}
+
+// Fail before Android starts packaging or signing an unsigned release artifact.
+tasks.configureEach { task ->
+    def taskName = task.name.toLowerCase(Locale.ROOT)
+    if (taskName.contains("release") &&
+        ["validatesigning", "package", "sign", "bundle", "assemble"].any { taskName.startsWith(it) }) {
+        task.doFirst { verifyReleaseSigning.call() }
     }
 }
 

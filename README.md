@@ -14,6 +14,10 @@ When a report is submitted without a connection, its form data and copied photos
 
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
+## Prepare a signed release
+
+Android release builds use a private upload keystore configured outside Git. Follow [the release signing guide](docs/release-signing.md) to create it and build an Android App Bundle. iOS distribution signing requires the Apple Developer team and Xcode on macOS. The guide also lists the release identifiers and HTTPS backend settings that must be finalized before store submission.
+
 ## Step 1: Start Metro
 
 First, you will need to run **Metro**, the JavaScript build tool for React Native.
