@@ -963,6 +963,11 @@ export function createLightStyles(C: StylePalette) {
       borderRadius: 10,
       backgroundColor: C.paleBlue,
     },
+    communityPhotoButton: {
+      width: '48%',
+      borderRadius: 10,
+      overflow: 'hidden',
+    },
     communityTitle: {
       fontSize: 14,
       color: C.ink,

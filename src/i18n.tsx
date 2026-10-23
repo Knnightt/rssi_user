@@ -2,7 +2,7 @@ import React, {createContext, useCallback, useContext, useEffect, useMemo, useSt
 import {Text as NativeText, TextProps} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type Language = 'en' | 'tl';
+export type Language = 'en' | 'tl' | 'ceb';
 type Translator = (value: string) => string;
 type LanguageContextValue = {language: Language; setLanguage: (value: Language) => Promise<void>; t: Translator};
 
@@ -279,25 +279,126 @@ const tagalog: Record<string, string> = {
   'Could not sign in right now.': 'Hindi makapag-sign in sa ngayon.',
 };
 
+const cebuano: Record<string, string> = {
+  'Dashboard': 'Dashboard', 'Submit report': 'Pagsumite og report',
+  'My submitted reports': 'Akong mga gisumite nga report', 'Updates': 'Mga update', 'My farm': 'Akong umahan',
+  'My profile': 'Akong profile', 'Help & support': 'Tabang ug suporta',
+  'Profile picture (optional)': 'Litrato sa profile (opsyonal)',
+  'Use a clear photo so your SRA team can recognize your account.': 'Gamita ang klarong litrato aron mailhan sa grupo sa SRA ang imong account.',
+  'Choose profile picture': 'Pagpili og litrato sa profile', 'Change profile picture': 'Ilisi ang litrato sa profile',
+  'Could not select that profile photo. Try another image.': 'Dili mapili ang maong litrato sa profile. Sulayi ang laing hulagway.',
+  'Profile photos must be 5 MB or smaller.': 'Kinahanglan 5 MB o ubos pa ang litrato sa profile.',
+  'Choose a profile photo and try again.': 'Pagpili og litrato sa profile ug sulayi pag-usab.',
+  'Your account was created, but the profile picture was not uploaded. You can add it later in My profile.': 'Nahimo na ang imong account apan wala ma-upload ang litrato sa profile. Mahimo nimo kining idugang unya sa Akong profile.',
+  'Home': 'Home', 'Farms': 'Mga umahan', 'Report': 'Report', 'History': 'Kasaysayan', 'New report': 'Bag-ong report',
+  'RSSI FARMER MONITORING': 'PAGSUBAY SA RSSI PARA SA MAG-UUMA',
+  'RSSI MONITORING · Farmer observations are subject to SRA review': 'PAGSUBAY SA RSSI · Susihon sa SRA ang mga obserbasyon sa mag-uuma',
+  'Offline mode · saved reports will sync automatically': 'Offline · awtomatikong i-sync ang mga na-save nga report',
+  'Network available · reconnecting to RSSI server': 'Adunay network · nagkonektar pag-usab sa RSSI server',
+  'Tap to dismiss': 'I-tap aron isira', 'Welcome back, ': 'Maayong pagbalik, ',
+  '. Track your farms and field observations.': '. Bantayi ang imong mga umahan ug obserbasyon sa uma.',
+  'Search farms, barangays, or reports…': 'Pangitaa ang mga umahan, barangay, o report…',
+  'Search farms and reports': 'Pangitaa ang mga umahan ug report', 'Search results': 'Mga resulta sa pagpangita',
+  'Clear': 'Hawani', 'No matches': 'Walay kaparehas', 'Try a farm name, municipality, or report code.': 'Sulayi ang ngalan sa umahan, lungsod, o code sa report.',
+  'Coverage': 'Sakop', 'Active reports': 'Mga aktibong report', 'Last sync': 'Kataposang pag-sync', 'Live': 'Live', 'Offline': 'Offline',
+  'Connected': 'Nakakonekta', 'Server checking': 'Gisusi ang server', 'Offline mode': 'Offline',
+  'Your farm and report details are up to date.': 'Bag-o na ang detalye sa imong umahan ug mga report.',
+  'Your network is available. Checking your RSSI server…': 'Adunay network. Gisusi ang imong RSSI server…',
+  'Saved farm details and your report drafts stay available offline.': 'Magamit gihapon offline ang detalye sa umahan ug mga draft sa report nga na-save.',
+  'Syncing reports…': 'Gi-sync ang mga report…', 'Sync': 'I-sync', ' waiting report': ' ka report nga naghulat', ' waiting reports': ' ka report nga naghulat',
+  'View and edit your account information': 'Tan-awa ug usba ang impormasyon sa imong account',
+  'Coverage overview': 'Kinatibuk-ang sakop', 'My farms': 'Akong mga umahan', 'Farm records linked to your account.': 'Mga rekord sa umahan nga nalambigit sa imong account.',
+  'Total monitored': 'Kinatibuk-ang gibantayan', 'Crop damage severity': 'Kagrabe sa kadaot sa tanom', 'Farmer estimate': 'Banabana sa mag-uuma',
+  'Mild': 'Gamay', 'Moderate': 'Kasagaran', 'Severe': 'Grabe', 'Highly severe': 'Hilabihan ka grabe', 'Not assessed': 'Wala pa masusi',
+  '1–20% damage': '1–20% nga kadaot', '21–50% damage': '21–50% nga kadaot', '51–70% damage': '51–70% nga kadaot', '71–100% damage': '71–100% nga kadaot',
+  'Severity reflects your observation. SRA review is recorded separately.': 'Gibase ang kagrabe sa imong obserbasyon. Gilain ang pagrekord sa pagsusi sa SRA.',
+  'My latest report': 'Akong bag-ong report', 'See all': 'Tan-awa tanan', 'No reports yet': 'Wala pay report',
+  'When you submit a field observation, it will appear here.': 'Dinhi makita ang imong obserbasyon kon mosumite ka niini.',
+  'Export summary': 'I-export ang sumaryo', 'Add field report': 'Pagdugang og report sa uma', 'View map': 'Tan-awa ang mapa', 'View reports': 'Tan-awa ang mga report',
+  'A farmer report is an observation for SRA review. It is not a confirmed RSSI finding.': 'Ang report sa mag-uuma usa ka obserbasyon nga susihon sa SRA. Dili pa kini kumpirmadong resulta sa RSSI.',
+  'YOUR PROPERTY RECORDS': 'MGA REKORD SA IMONG UMAHAN', 'Manage the farm locations linked to your account.': 'Pagdumala sa mga lokasyon sa umahan nga nalambigit sa imong account.',
+  'Add a farm': 'Pagdugang og umahan', 'Your farms': 'Imong mga umahan',
+  'Add a farm you own or manage. Exact coordinates are not required.': 'Idugang ang umahan nga imo o imong gidumala. Dili kinahanglan ang eksaktong koordinado.',
+  'Only farms in your account are shown here.': 'Mga umahan lang sa imong account ang makita dinhi.',
+  'Farm name': 'Ngalan sa umahan', 'Your farm name': 'Ngalan sa imong umahan', 'Province': 'Probinsya',
+  'Oriental': 'Sidlakan', 'Occidental': 'Kasadpan', 'Municipality / city': 'Munisipyo / siyudad',
+  'Barangay (optional)': 'Barangay (opsyonal)', 'Barangay': 'Barangay', 'Complete farm address': 'Kompletong adres sa umahan', 'Farm area (hectares) *': 'Gidak-on sa umahan (ektarya) *',
+  'Your current location is pinned automatically. Use two fingers to move the map under the center pin to locate your farm.': 'Awtomatikong butangan og pin ang imong kasamtangang lokasyon. Gamita ang duha ka tudlo sa paglihok sa mapa ilalom sa pin aron pangitaon ang imong umahan.',
+  'Choose a point on the map or use current location.': 'Pagpili og punto sa mapa o gamita ang kasamtangang lokasyon.',
+  'The pin is only saved when you enable location consent above.': 'Ma-save lang ang pin kon mouyon ka sa paggamit sa lokasyon sa ibabaw.',
+  'Enter a farm name, select a municipality and barangay, and enter a farm area greater than zero.': 'Isulod ang ngalan sa umahan, pagpili og munisipyo ug barangay, ug isulod ang gidak-on sa umahan nga labaw sa sero.',
+  'Getting phone location…': 'Gikuha ang lokasyon sa telepono…', 'Use phone location to fill address': 'Gamita ang lokasyon sa telepono sa pagpuno sa adres',
+  'Phone location found. Review the address and choose any location fields that could not be matched automatically.': 'Nakita ang lokasyon sa telepono. Susiha ang adres ug pilia ang mga bahin sa lokasyon nga wala awtomatikong matumbok.',
+  'Could not fill the address from your phone location.': 'Dili mapuno ang adres gamit ang lokasyon sa telepono.',
+  'Required to size your farm circle on the map.': 'Kinahanglan kini aron masukod ang lingin sa umahan sa mapa.',
+  'Save an exact GPS pin for my farm (optional)': 'I-save ang eksaktong GPS pin sa akong umahan (opsyonal)',
+  'Your exact pin is visible only to you and authorized SRA staff.': 'Ikaw ug ang awtorisadong kawani sa SRA ra ang makakita sa eksaktong pin.',
+  'Choose your exact farm location on the map. Use two fingers to move the map under the fixed center pin. Map tiles need internet.': 'Pilia ang eksaktong lokasyon sa imong umahan sa mapa. Gamita ang duha ka tudlo sa paglihok sa mapa ilalom sa pin sa tunga. Kinahanglan og internet ang mapa.',
+  'Show this farm in SRA Map Monitoring': 'Ipakita kini nga umahan sa Mapa sa Pagsubay sa SRA',
+  'Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.': 'Ablihi kini ug i-save ang pin aron makita sa awtorisadong kawani sa SRA ang umahan. Pasagdi kining sirado aron pribado ang eksaktong lokasyon.',
+  'Set or edit map pin': 'Ibutang o usba ang pin sa mapa', 'Update farm location': 'I-update ang lokasyon sa umahan',
+  'Save location': 'I-save ang lokasyon', 'Saving location…': 'Gi-save ang lokasyon…', 'Farm location updated.': 'Na-update ang lokasyon sa umahan.',
+  'Getting location…': 'Gikuha ang lokasyon…', 'Use current location': 'Gamita ang kasamtangang lokasyon',
+  'Cancel': 'Kanselahon', 'Save farm': 'I-save ang umahan', 'No farms added yet': 'Wala pay nadugang nga umahan',
+  'Add your farm to start reporting field observations.': 'Idugang ang imong umahan aron makasugod sa pagsumite og mga obserbasyon sa uma.',
+  'Location privacy': 'Pribasiya sa lokasyon', 'Selected report': 'Napiling report', 'No reports match these filters': 'Walay report nga motakdo sa mga filter',
+  'Choose your exact farm location': 'Pilia ang eksaktong lokasyon sa imong umahan', 'Selected farm pin': 'Napiling pin sa umahan',
+  'Map tiles require an internet connection.': 'Kinahanglan og koneksyon sa internet aron mogana ang mapa.',
+  'Save this precise farm location (optional)': 'I-save kining eksaktong lokasyon sa umahan (opsyonal)',
+  'Use my current location': 'Gamita ang akong kasamtangang lokasyon',
+  'Enter your email and password to continue.': 'Isulod ang imong email ug password aron mopadayon.',
+  'Could not save the farm.': 'Dili ma-save ang umahan.', 'Could not update your profile.': 'Dili ma-update ang imong profile.',
+  'Your profile was updated.': 'Na-update ang imong profile.', 'Enter your name before saving.': 'Isulod ang imong ngalan una sa pag-save.',
+  'Active': 'Aktibo', 'Inactive': 'Dili aktibo', 'Size not set': 'Wala matakda ang gidak-on', 'Pin saved': 'Na-save ang pin', 'Area only': 'Gidak-on lamang',
+  'Loading map…': 'Gikarga ang mapa…', 'Support': 'Suporta', 'Map data': 'Datos sa mapa', 'Privacy': 'Pribasiya',
+  'FARMER ACCOUNT': 'ACCOUNT SA MAG-UUMA', 'Pinned location': 'Lokasyon nga adunay pin', 'Your password': 'Imong password',
+  'Updates need internet': 'Kinahanglan og internet ang mga update', 'Welcome back': 'Maayong pagbalik',
+  'Create your RSSI farmer account in a few quick steps.': 'Paghimo og RSSI account sa mag-uuma pinaagi sa pipila ka lakang.',
+  'Login details': 'Mga detalye sa pag-login', 'Farm registration': 'Pagparehistro sa umahan',
+  'App language': 'Pinulongan sa app', 'Choose the language used in the app.': 'Pilia ang pinulongan nga gamiton sa app.',
+  'Language': 'Pinulongan', 'Select language': 'Pagpili og pinulongan', 'English': 'English', 'Tagalog': 'Tagalog', 'Cebuano': 'Cebuano',
+  'Create an account': 'Paghimo og account', 'Sign in': 'Sulod', 'Username': 'Username', 'Password': 'Password',
+  'Confirm password *': 'Kumpirmahi ang password *', 'Enter your password again': 'Isulod pag-usab ang imong password',
+  'Password (10 characters minimum) *': 'Password (labing menos 10 ka karakter) *', 'Create a password': 'Paghimo og password',
+  'Full name *': 'Tibuok nga ngalan *', 'Enter your full name': 'Isulod ang imong tibuok nga ngalan',
+  'Username for login *': 'Username para sa pag-login *', 'Choose a username': 'Pagpili og username',
+  'Email address *': 'Adres sa email *', 'Phone number *': 'Numero sa telepono *',
+  'Next': 'Sunod', 'Back': 'Balik', 'Create account': 'Paghimo og account',
+  'The passwords do not match. Check both fields and try again.': 'Dili magkaparehas ang mga password. Susiha ang duha ka field ug sulayi pag-usab.',
+  'Confirm your password to continue.': 'Kumpirmahi ang password aron mopadayon.',
+  'Choose a password with at least 10 characters.': 'Paghimo og password nga adunay labing menos 10 ka karakter.',
+  'Enter your username and password to continue.': 'Isulod ang imong username ug password aron mopadayon.',
+  'That username and password did not match.': 'Dili magkaparehas ang username ug password.',
+  'That username is already in use. Choose another.': 'Gigamit na ang maong username. Pagpili og lain.',
+  'Could not create the account right now.': 'Dili makahimo og account karon.', 'Could not sign in right now.': 'Dili makasulod karon.',
+};
+
 function translate(value: string, language: Language): string {
   if (language === 'en') return value;
   const step = value.trim().match(/^STEP (\d+) OF 4$/);
-  if (step) return `HAKBANG ${step[1]} SA 4`;
+  if (step) return language === 'tl' ? `HAKBANG ${step[1]} SA 4` : `LAKANG ${step[1]} SA 4`;
   const welcome = value.match(/^Welcome back, (.+)\. Track your farms and field observations\.$/);
-  if (welcome) return `Maligayang pagbabalik, ${welcome[1]}. Subaybayan ang iyong mga sakahan at obserbasyon sa bukid.`;
+  if (welcome) return language === 'tl'
+    ? `Maligayang pagbabalik, ${welcome[1]}. Subaybayan ang iyong mga sakahan at obserbasyon sa bukid.`
+    : `Maayong pagbalik, ${welcome[1]}. Bantayi ang imong mga umahan ug obserbasyon sa uma.`;
   const trimmed = value.trim();
   const syncNotice = trimmed.match(/^(\d+) reports? waiting to sync\. RSSI will retry automatically\.$/);
-  if (syncNotice) return `${syncNotice[1]} ulat ang naghihintay na mai-sync. Awtomatikong susubukan muli ng RSSI.`;
+  if (syncNotice) return language === 'tl'
+    ? `${syncNotice[1]} ulat ang naghihintay na mai-sync. Awtomatikong susubukan muli ng RSSI.`
+    : `${syncNotice[1]} ka report ang naghulat nga ma-sync. Awtomatikong mosulay pag-usab ang RSSI.`;
   const syncAction = trimmed.match(/^Sync (\d+) waiting reports?$/);
-  if (syncAction) return `I-sync ang ${syncAction[1]} ulat na naghihintay`;
+  if (syncAction) return language === 'tl' ? `I-sync ang ${syncAction[1]} ulat na naghihintay` : `I-sync ang ${syncAction[1]} ka report nga naghulat`;
   const photoUpload = trimmed.match(/^Waiting to upload (\d+) photos?$/);
-  if (photoUpload) return `${photoUpload[1]} litrato ang naghihintay i-upload`;
-  const translated = tagalog[trimmed];
+  if (photoUpload) return language === 'tl' ? `${photoUpload[1]} litrato ang naghihintay i-upload` : `${photoUpload[1]} ka litrato ang naghulat nga ma-upload`;
+  const dictionary = language === 'tl' ? tagalog : cebuano;
+  const translated = dictionary[trimmed];
   if (translated !== undefined) return value.replace(trimmed, translated);
   const countMatch = trimmed.match(/^(\d+) (provinces|farms|reports|waiting report|waiting reports)$/);
   if (countMatch) {
     const count = countMatch[1];
-    const unit: Record<string, string> = {provinces: 'lalawigan', farms: 'sakahan', reports: 'ulat', 'waiting report': 'ulat na naghihintay', 'waiting reports': 'ulat na naghihintay'};
+    const unit: Record<string, string> = language === 'tl'
+      ? {provinces: 'lalawigan', farms: 'sakahan', reports: 'ulat', 'waiting report': 'ulat na naghihintay', 'waiting reports': 'ulat na naghihintay'}
+      : {provinces: 'probinsya', farms: 'umahan', reports: 'report', 'waiting report': 'report nga naghulat', 'waiting reports': 'report nga naghulat'};
     return value.replace(trimmed, `${count} ${unit[countMatch[2]]}`);
   }
   return value;
@@ -315,7 +416,7 @@ export function LanguageProvider({children}: {children: React.ReactNode}) {
   useEffect(() => {
     let mounted = true;
     void AsyncStorage.getItem(languageStorageKey).then(value => {
-      if (mounted && (value === 'en' || value === 'tl')) setLanguageState(value);
+      if (mounted && (value === 'en' || value === 'tl' || value === 'ceb')) setLanguageState(value);
     }).catch(() => undefined);
     return () => { mounted = false; };
   }, []);

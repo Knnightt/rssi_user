@@ -27,6 +27,7 @@ export default function AuthScreen({
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [loginUsername, setLoginUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [registerStep, setRegisterStep] = useState(0);
   const [addFarm, setAddFarm] = useState(false);
   const [fields, setFields] = useState<RegisterFields>({
@@ -212,6 +213,14 @@ export default function AuthScreen({
         setError('Choose a password with at least 10 characters.');
         return;
       }
+      if (!confirmPassword) {
+        setError('Confirm your password to continue.');
+        return;
+      }
+      if (fields.password !== confirmPassword) {
+        setError('The passwords do not match. Check both fields and try again.');
+        return;
+      }
       setField('username', normalizedUsername);
       setRegisterStep(2);
       return;
@@ -370,8 +379,8 @@ export default function AuthScreen({
 
   return (
     <SafeAreaView style={styles.authRoot}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled" scrollEnabled={!mapGestureActive}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" scrollEnabled={!mapGestureActive}>
           <View style={styles.authBrandRow}>
             <BrandMark large />
             <View style={styles.flex}>
@@ -399,7 +408,8 @@ export default function AuthScreen({
               {registerStep === 1 ? <>
                 <Field label="Username for login *" value={fields.username} onChangeText={value => setField('username', value)} placeholder="Choose a username" autoCapitalize="none" autoCorrect={false} />
                 <Text style={styles.helperText}>Use this username whenever you sign in. Add your email address in profile information.</Text>
-                <Field label="Password (10 characters minimum) *" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry autoCapitalize="none" autoCorrect={false} />
+                <Field label="Password (10 characters minimum) *" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry showPasswordToggle autoCapitalize="none" autoCorrect={false} />
+                <Field label="Confirm password *" value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Enter your password again" secureTextEntry showPasswordToggle autoCapitalize="none" autoCorrect={false} />
               </> : null}
               {registerStep === 2 ? <>
                 <Text style={styles.bodyText}>Would you like to register a farm now? You can add one later from your account.</Text>

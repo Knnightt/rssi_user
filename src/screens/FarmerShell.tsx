@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Image, Platform, RefreshControl, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
+import {Image, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {Asset} from 'react-native-image-picker';
@@ -833,7 +833,7 @@ export default function FarmerShell(props: {
   };
 
   return (
-    <SafeAreaView style={styles.appRoot} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.appRoot} edges={['top', 'left', 'right', 'bottom']}>
       <View style={styles.appHeader}>
         <View style={styles.headerBrand}><BrandMark /><View style={styles.headerBrandCopy}><Text style={styles.headerBrandName} numberOfLines={1}>{screenTitle}</Text><Text style={styles.headerBrandSub} numberOfLines={1}>RSSI · Negros Oriental & Negros Occidental</Text></View></View>
         <TouchableOpacity style={styles.headerAccount} onPress={() => setTab('profile')}>
@@ -848,6 +848,7 @@ export default function FarmerShell(props: {
       ) : networkConnected && !serverReachable ? (
         <View style={[styles.offlineBanner, styles.serverBanner]}><Text style={styles.offlineIcon}>↻</Text><Text style={styles.offlineBannerText}>Network available · reconnecting to RSSI server</Text></View>
       ) : null}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       {notice ? (
         <TouchableOpacity style={styles.noticeWrap} onPress={clearNotice}><Notice text={notice} tone="info" /><Text style={styles.dismissText}>Tap to dismiss</Text></TouchableOpacity>
       ) : null}
@@ -855,6 +856,7 @@ export default function FarmerShell(props: {
         style={styles.flex}
         contentContainerStyle={styles.screenContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         scrollEnabled={!farmMapGestureActive}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshData} />}
       >
@@ -870,6 +872,7 @@ export default function FarmerShell(props: {
         <NavButton icon="◷" label="History" active={tab === 'history'} onPress={() => setTab('history')} badge={queue.length} />
         <NavButton icon="◎" label="Updates" active={tab === 'community'} onPress={() => setTab('community')} />
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

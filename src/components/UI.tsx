@@ -1,5 +1,5 @@
-import React, {useState} from 'react';
-import {ActivityIndicator, Image, Switch, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
+import React, {useRef, useState} from 'react';
+import {ActivityIndicator, Image, Modal, PanResponder, Switch, Text as NativeText, TextInput, TouchableOpacity, View, useWindowDimensions} from 'react-native';
 import {Asset, launchImageLibrary} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {CommunityUpdate, FarmProperty, FieldReport, getProfilePhotoUri} from '../api';
@@ -191,6 +191,7 @@ export function QueuedReportRow({item}: {item: QueuedReport}) {
 
 export function CommunityCard({item, onConfirm, disabled, token}: {item: CommunityUpdate; onConfirm: () => void; disabled: boolean; token: string}) {
   const {t} = useLanguage();
+  const [viewerPhoto, setViewerPhoto] = useState<{uri: string; index: number} | null>(null);
   return <View style={styles.communityCard}>
     <View style={styles.communityHeader}><SeverityBadge severity={item.farmer_severity} range={item.farmer_severity_range} /><NativeText style={styles.communityDate}>{item.observed_at} · {item.municipality}, {item.province}</NativeText></View>
     <NativeText style={styles.communityTitle}>{item.observations}</NativeText>
@@ -198,19 +199,118 @@ export function CommunityCard({item, onConfirm, disabled, token}: {item: Communi
     {item.photos?.length ? <View style={styles.communityPhotoGrid}>
       {item.photos.map((photo, index) => {
         const uri = getProfilePhotoUri(photo.url);
-        return uri ? <Image
+        return uri ? <TouchableOpacity
           key={photo.id}
+          onPress={() => setViewerPhoto({uri, index})}
+          accessibilityRole="button"
+          accessibilityLabel={`${t(`Shared observation photo ${index + 1}`)}. ${t('Tap to zoom')}`}
+          style={styles.communityPhotoButton}
+        ><Image
           source={{uri, headers: {Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true'}}}
-          style={styles.communityPhoto}
+          style={[styles.communityPhoto, {width: '100%'}]}
           resizeMode="cover"
           accessibilityLabel={t(`Shared observation photo ${index + 1}`)}
-        /> : null;
+        /></TouchableOpacity> : null;
       })}
     </View> : null}
     <View style={styles.communityFoot}><Text style={styles.communityStatus}>{t('SRA status')}: {t(item.verification_status)}</Text><Text style={styles.communityStatus}>{t(`${item.confirmation_count} agreed`)}</Text></View>
     <Button label={item.confirmed_by_me ? 'You agreed with this observation' : 'I observed something similar'} onPress={onConfirm} disabled={disabled} kind={item.confirmed_by_me ? 'light' : 'light'} />
     <Text style={styles.helperText}>Agreement is not an official verification.</Text>
+    {viewerPhoto ? <PhotoViewer
+      uri={viewerPhoto.uri}
+      token={token}
+      label={t(`Shared observation photo ${viewerPhoto.index + 1}`)}
+      onClose={() => setViewerPhoto(null)}
+    /> : null}
   </View>;
+}
+
+function PhotoViewer({uri, token, label, onClose}: {uri: string; token: string; label: string; onClose: () => void}) {
+  const {width, height} = useWindowDimensions();
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({x: 0, y: 0});
+  const scaleRef = useRef(1);
+  const offsetRef = useRef({x: 0, y: 0});
+  const initialScale = useRef(1);
+  const initialOffset = useRef({x: 0, y: 0});
+  const initialDistance = useRef(0);
+  const distanceBetweenTouches = (touches: readonly {pageX: number; pageY: number}[]) => {
+    if (touches.length < 2) return 0;
+    const dx = touches[0].pageX - touches[1].pageX;
+    const dy = touches[0].pageY - touches[1].pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: event => {
+      initialScale.current = scaleRef.current;
+      initialOffset.current = offsetRef.current;
+      initialDistance.current = distanceBetweenTouches(event.nativeEvent.touches);
+    },
+    onPanResponderMove: (event, gesture) => {
+      const touchDistance = distanceBetweenTouches(event.nativeEvent.touches);
+      if (touchDistance > 0) {
+        if (!initialDistance.current) {
+          initialDistance.current = touchDistance;
+          initialScale.current = scaleRef.current;
+        }
+        const nextScale = Math.max(1, Math.min(5, initialScale.current * touchDistance / initialDistance.current));
+        scaleRef.current = nextScale;
+        setScale(nextScale);
+        if (nextScale === 1) {
+          offsetRef.current = {x: 0, y: 0};
+          initialOffset.current = offsetRef.current;
+          setOffset(offsetRef.current);
+        }
+        return;
+      }
+      if (initialDistance.current) {
+        initialDistance.current = 0;
+        initialOffset.current = offsetRef.current;
+      }
+      if (scaleRef.current > 1) {
+        const maxX = (width * (scaleRef.current - 1)) / 2;
+        const maxY = (height * (scaleRef.current - 1)) / 2;
+        const nextOffset = {
+          x: Math.max(-maxX, Math.min(maxX, initialOffset.current.x + gesture.dx)),
+          y: Math.max(-maxY, Math.min(maxY, initialOffset.current.y + gesture.dy)),
+        };
+        offsetRef.current = nextOffset;
+        setOffset(nextOffset);
+      }
+    },
+    onPanResponderRelease: () => {
+      initialDistance.current = 0;
+      initialScale.current = scaleRef.current;
+      initialOffset.current = offsetRef.current;
+    },
+    onPanResponderTerminate: () => {
+      initialDistance.current = 0;
+      initialScale.current = scaleRef.current;
+      initialOffset.current = offsetRef.current;
+    },
+  })).current;
+
+  return <Modal visible animationType="fade" transparent onRequestClose={onClose} statusBarTranslucent>
+    <View style={{flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.96)', justifyContent: 'center', alignItems: 'center'}}>
+      <View style={{width, height, justifyContent: 'center', alignItems: 'center'}} {...panResponder.panHandlers}>
+        <Image
+          source={{uri, headers: {Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true'}}}
+          resizeMode="contain"
+          accessibilityLabel={label}
+          style={{width, height, transform: [{translateX: offset.x}, {translateY: offset.y}, {scale}]}}
+        />
+      </View>
+      <TouchableOpacity
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Close photo"
+        hitSlop={10}
+        style={{position: 'absolute', top: 42, right: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(40, 40, 40, 0.85)', alignItems: 'center', justifyContent: 'center'}}
+      ><NativeText style={{color: '#FFFFFF', fontSize: 30, lineHeight: 34}}>×</NativeText></TouchableOpacity>
+    </View>
+  </Modal>;
 }
 
 export function InfoRow({label, value, compact = false, translateValue = false}: {label: string; value: string; compact?: boolean; translateValue?: boolean}) {
@@ -295,9 +395,9 @@ export function LanguageSwitcher({title = true}: {title?: boolean}) {
   return <View style={styles.settingGroup}>
     {title ? <><Text style={styles.inputLabel}>{t('App language')}</Text><Text style={styles.helperText}>{t('Choose the language used in the app.')}</Text></> : null}
     <View style={styles.languageOptionsRow}>
-      {(['en', 'tl'] as Language[]).map(option => {
+      {(['en', 'tl', 'ceb'] as Language[]).map(option => {
         const selected = language === option;
-        const label = option === 'en' ? 'English' : 'Tagalog';
+        const label = option === 'en' ? 'English' : option === 'tl' ? 'Tagalog' : 'Cebuano';
         return <TouchableOpacity key={option} accessibilityRole="button" accessibilityState={{selected}} onPress={() => void setLanguage(option)} style={[styles.settingOption, styles.settingOptionLanguage, selected && styles.settingOptionActive]}>
           <Text style={[styles.settingOptionText, selected && styles.settingOptionTextActive]}>{label}</Text>
         </TouchableOpacity>;
