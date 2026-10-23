@@ -65,7 +65,9 @@ export default function useNetworkSync({token, userId, tab, syncAndRefresh, load
       }
     });
     const timer = setInterval(() => {
-      recover().catch(() => undefined);
+      if (AppState.currentState === 'active') {
+        recover().catch(() => undefined);
+      }
     }, 30000);
     recover().catch(() => undefined);
 

@@ -79,6 +79,14 @@ export default function FarmerShell(props: {
   const [profileMessage, setProfileMessage] = useState('');
 
   useEffect(() => {
+    if (!selectedReport) return;
+    const latestReport = reports.find(report => report.id === selectedReport.id);
+    if (latestReport && latestReport !== selectedReport) {
+      setSelectedReport(latestReport);
+    }
+  }, [reports, selectedReport]);
+
+  useEffect(() => {
     if (selectedFarm === null && properties.length > 0) {
       setSelectedFarm(properties[0].id);
     } else if (selectedFarm !== null && !properties.some(property => property.id === selectedFarm)) {
@@ -705,6 +713,10 @@ export default function FarmerShell(props: {
                 <Text style={styles.inputLabel}>Observation</Text><NativeText style={styles.bodyText}>{selectedReport.observations}</NativeText>
                 <Text style={[styles.inputLabel, styles.detailLabel]}>Damage description</Text><NativeText style={styles.bodyText}>{selectedReport.damage_description}</NativeText>
               </Card>
+              {selectedReport.follow_up_at ? <Card>
+                <Text style={styles.cardTitle}>{t('Latest SRA update')}</Text>
+                <InfoRow label={t('Scheduled follow-up')} value={selectedReport.follow_up_at} />
+              </Card> : null}
               {selectedReport.photos.length > 0 ? <Card><Text style={styles.cardTitle}>Attached photos</Text>{selectedReport.photos.map(photo => <Text key={photo.id} style={styles.photoName}>{photo.name}</Text>)}</Card> : null}
               <PrivacyNote text="A farmer report is an observation for SRA review. The farmer's estimate is not an SRA diagnosis." />
             </>

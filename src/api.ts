@@ -42,6 +42,7 @@ export type FieldReport = {
   affected_area_hectares: string;
   verification_status: string;
   sra_severity: string | null;
+  follow_up_at?: string | null;
   photos: Array<{id: number; name: string; url: string}>;
 };
 
