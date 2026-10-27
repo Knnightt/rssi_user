@@ -8,8 +8,9 @@ import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, geocodeF
 import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {DropdownField} from '../components/DropdownField';
+import {ReportProgressTimeline} from '../components/ReportProgressTimeline';
 import negrosLocations from '../data/negrosLocations.json';
-import {createId, QueuedPhoto, QueuedReport, storePhoto} from '../reportQueue';
+import {createId, PhotoUploadProgress, QueuedPhoto, QueuedReport, storePhoto} from '../reportQueue';
 import {styles, useTheme} from '../theme';
 import {Tab} from '../types';
 import {Avatar, BrandMark, Button, Card, Choice, CommunityCard, EmptyState, FarmRow, Field, InfoRow, LanguageSwitcher, NavButton, Notice, PageIntro, Pill, PrivacyNote, ProfilePhotoPicker, QueuedReportRow, ReportRow, SeverityBadge, ThemeSwitcher, ToggleLine} from '../components/UI';
@@ -27,11 +28,13 @@ export default function FarmerShell(props: {
   networkConnected: boolean;
   serverReachable: boolean;
   busy: boolean;
+  photoUploadProgress: PhotoUploadProgress | null;
   notice: string;
   clearNotice: () => void;
   onMessage: (message: string) => void;
   token: string;
   onReportQueued: (item: QueuedReport) => Promise<void>;
+  onRetryPhoto: (clientSubmissionId: string, photoId: string) => Promise<void>;
   onSync: () => Promise<void>;
   onRefresh: () => Promise<void>;
   onLoadCommunity: () => Promise<void>;
@@ -44,7 +47,7 @@ export default function FarmerShell(props: {
   const {t} = useLanguage();
   const {
     user, properties, reports, queue, community, tab, setTab,
-    networkConnected, serverReachable, busy, notice, clearNotice, onMessage, token,
+    networkConnected, serverReachable, busy, photoUploadProgress, notice, clearNotice, onMessage, token,
   } = props;
   const [farmForm, setFarmForm] = useState(false);
   const [farmBusy, setFarmBusy] = useState(false);
@@ -63,6 +66,7 @@ export default function FarmerShell(props: {
   const [damage, setDamage] = useState('');
   const [severity, setSeverity] = useState('Mild');
   const [area, setArea] = useState('');
+  const [cropValues, setCropValues] = useState({plantHeightCm: '', leavesPerStalk: '', leafLengthCm: '', leafWidthCm: '', tillerCount: '', measurementDate: '', cropVariety: '', growthStage: '', sampleCount: ''});
   const [locationDescription, setLocationDescription] = useState('');
   const [useFarmAddress, setUseFarmAddress] = useState(true);
   const [communityShare, setCommunityShare] = useState(false);
@@ -129,8 +133,8 @@ export default function FarmerShell(props: {
     }
     const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const rows = [
-      ['Report code', 'Farm', 'Province', 'Municipality', 'Observed date', 'Submitted date', 'Observation', 'Damage', 'Farmer severity', 'Affected area (ha)', 'SRA status', 'SRA severity'],
-      ...reports.map(report => [report.code, report.property_name, report.province, report.municipality, report.observed_at, report.submitted_at, report.observations, report.damage_description, report.farmer_severity, report.affected_area_hectares, report.verification_status, report.sra_severity || '']),
+      ['Report code', 'Farm', 'Province', 'Municipality', 'Observed date', 'Submitted date', 'Observation', 'Damage', 'Farmer severity', 'Affected area (ha)', 'Plant height (cm)', 'Leaves per stalk', 'Leaf length (cm)', 'Leaf width (cm)', 'Tillers', 'Measurement date', 'Crop variety', 'Growth stage', 'Plants sampled', 'SRA status', 'SRA severity'],
+      ...reports.map(report => [report.code, report.property_name, report.province, report.municipality, report.observed_at, report.submitted_at, report.observations, report.damage_description, report.farmer_severity, report.affected_area_hectares, report.crop_characteristics?.plant_height_cm ?? '', report.crop_characteristics?.leaves_per_stalk ?? '', report.crop_characteristics?.leaf_length_cm ?? '', report.crop_characteristics?.leaf_width_cm ?? '', report.crop_characteristics?.tiller_count ?? '', report.crop_characteristics?.measurement_date ?? '', report.crop_characteristics?.crop_variety ?? '', report.crop_characteristics?.growth_stage ?? '', report.crop_characteristics?.sample_count ?? '', report.verification_status, report.sra_severity || '']),
     ];
     const csv = `\uFEFF${rows.map(row => row.map(csvCell).join(',')).join('\r\n')}`;
     const filePath = `${RNFS.DocumentDirectoryPath}/rssi-reports-${Date.now()}.csv`;
@@ -405,6 +409,14 @@ export default function FarmerShell(props: {
       setReportError('Enter the observed date in YYYY-MM-DD format.');
       return;
     }
+    if (cropValues.measurementDate && !/^\d{4}-\d{2}-\d{2}$/.test(cropValues.measurementDate)) {
+      setReportError('Enter the crop measurement date as YYYY-MM-DD.');
+      return;
+    }
+    if (cropValues.sampleCount && (Number(cropValues.sampleCount) < 1 || Number(cropValues.sampleCount) > 1000000)) {
+      setReportError('Plants sampled must be between 1 and 1,000,000.');
+      return;
+    }
     setReportBusy(true);
     setReportError('');
     const item: QueuedReport = {
@@ -416,6 +428,17 @@ export default function FarmerShell(props: {
         damageDescription: damage.trim(),
         farmerSeverity: severity,
         affectedArea: area ? Number(area) : 0,
+        cropCharacteristics: {
+          plantHeightCm: cropValues.plantHeightCm ? Number(cropValues.plantHeightCm) : null,
+          leavesPerStalk: cropValues.leavesPerStalk ? Number(cropValues.leavesPerStalk) : null,
+          leafLengthCm: cropValues.leafLengthCm ? Number(cropValues.leafLengthCm) : null,
+          leafWidthCm: cropValues.leafWidthCm ? Number(cropValues.leafWidthCm) : null,
+          tillerCount: cropValues.tillerCount ? Number(cropValues.tillerCount) : null,
+          measurementDate: cropValues.measurementDate.trim() || null,
+          cropVariety: cropValues.cropVariety.trim() || null,
+          growthStage: cropValues.growthStage.trim() || null,
+          sampleCount: cropValues.sampleCount ? Number(cropValues.sampleCount) : null,
+        },
         consent: true,
         communitySharing: communityShare,
         locationDescription: useFarmAddress
@@ -426,6 +449,8 @@ export default function FarmerShell(props: {
       propertyProvince: selectedProperty.province,
       propertyMunicipality: selectedProperty.municipality,
       photos,
+      photoCount: photos.length,
+      syncedPhotoCount: 0,
       createdAt: new Date().toISOString(),
     };
     try {
@@ -433,6 +458,7 @@ export default function FarmerShell(props: {
       setObservations('');
       setDamage('');
       setArea('');
+      setCropValues({plantHeightCm: '', leavesPerStalk: '', leafLengthCm: '', leafWidthCm: '', tillerCount: '', measurementDate: '', cropVariety: '', growthStage: '', sampleCount: ''});
       setLocationDescription('');
       setSeverity('Mild');
       setUseFarmAddress(true);
@@ -596,7 +622,7 @@ export default function FarmerShell(props: {
                 <EmptyState icon="▤" title="No reports yet" description="When you submit a field observation, it will appear here." />
               ) : (
                 <>
-                  {queue.slice(0, 2).map(item => <QueuedReportRow key={item.clientSubmissionId} item={item} />)}
+                  {queue.slice(0, 2).map(item => <QueuedReportRow key={item.clientSubmissionId} item={item} uploadProgress={photoUploadProgress} networkConnected={networkConnected} busy={busy} onRetryPhoto={props.onRetryPhoto} />)}
                   {reports.slice(0, 1).map(report => <ReportRow key={report.id} report={report} onPress={() => {setSelectedReport(report); setTab('history');}} />)}
                 </>
               )}
@@ -664,8 +690,21 @@ export default function FarmerShell(props: {
                   <Field label="Estimated affected area (ha)" value={area} onChangeText={value => setArea(value.replace(/[^0-9.]/g, ''))} placeholder="If you know it" keyboardType="decimal-pad" />
                 </Card>
                 <Card>
+                  <Text style={styles.cardTitle}>Crop characteristics</Text>
+                  <Text style={styles.cardSub}>Optional farmer observations. Measurements in centimeters; leave any unknown value blank.</Text>
+                  <Field label="Plant height (cm)" value={cropValues.plantHeightCm} onChangeText={value => setCropValues(current => ({...current, plantHeightCm: decimalEntry(value)}))} placeholder="For example, 180" keyboardType="decimal-pad" />
+                  <Field label="Number of leaves in a stalk" value={cropValues.leavesPerStalk} onChangeText={value => setCropValues(current => ({...current, leavesPerStalk: value.replace(/\D/g, '')}))} placeholder="Count" keyboardType="numeric" />
+                  <Field label="Leaf length (cm)" value={cropValues.leafLengthCm} onChangeText={value => setCropValues(current => ({...current, leafLengthCm: decimalEntry(value)}))} placeholder="For example, 90" keyboardType="decimal-pad" />
+                  <Field label="Leaf width (cm)" value={cropValues.leafWidthCm} onChangeText={value => setCropValues(current => ({...current, leafWidthCm: decimalEntry(value)}))} placeholder="For example, 5.5" keyboardType="decimal-pad" />
+                  <Field label="Number of tillers" value={cropValues.tillerCount} onChangeText={value => setCropValues(current => ({...current, tillerCount: value.replace(/\D/g, '')}))} placeholder="Count" keyboardType="numeric" />
+                  <Field label="Measurement date" value={cropValues.measurementDate} onChangeText={value => setCropValues(current => ({...current, measurementDate: value.replace(/[^0-9-]/g, '').slice(0, 10)}))} placeholder="YYYY-MM-DD" />
+                  <Field label="Crop variety" value={cropValues.cropVariety} onChangeText={value => setCropValues(current => ({...current, cropVariety: value}))} placeholder="If known" />
+                  <Field label="Crop growth stage" value={cropValues.growthStage} onChangeText={value => setCropValues(current => ({...current, growthStage: value}))} placeholder="For example, tillering" />
+                  <Field label="Plants sampled" value={cropValues.sampleCount} onChangeText={value => setCropValues(current => ({...current, sampleCount: value.replace(/\D/g, '')}))} placeholder="Count" keyboardType="numeric" />
+                </Card>
+                <Card>
                   <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Photo evidence</Text><Pill text={`${photos.length} / 5`} tone="blue" /></View>
-                  <Text style={styles.cardSub}>Photos are optional and are uploaded privately with your report.</Text>
+                  <Text style={styles.cardSub}>Photos are optional. They are saved on this device first and sync to SRA after the report is saved.</Text>
                   {photos.length > 0 ? <View style={styles.photoGrid}>
                     {photos.map((photo, index) => <View key={photo.id} style={styles.photoTile}>
                       <Image source={{uri: photo.uri.startsWith('file://') ? photo.uri : `file://${photo.uri}`}} style={styles.photoThumbnail} />
@@ -712,11 +751,18 @@ export default function FarmerShell(props: {
                 <InfoRow label="Affected area" value={`${selectedReport.affected_area_hectares || '0'} ha`} />
                 <Text style={styles.inputLabel}>Observation</Text><NativeText style={styles.bodyText}>{selectedReport.observations}</NativeText>
                 <Text style={[styles.inputLabel, styles.detailLabel]}>Damage description</Text><NativeText style={styles.bodyText}>{selectedReport.damage_description}</NativeText>
+                <Text style={[styles.inputLabel, styles.detailLabel]}>Farmer-reported crop characteristics</Text>
+                <InfoRow label="Plant height" value={selectedReport.crop_characteristics?.plant_height_cm != null ? `${selectedReport.crop_characteristics.plant_height_cm} cm` : 'Not provided'} />
+                <InfoRow label="Leaves in a stalk" value={selectedReport.crop_characteristics?.leaves_per_stalk != null ? String(selectedReport.crop_characteristics.leaves_per_stalk) : 'Not provided'} />
+                <InfoRow label="Leaf length" value={selectedReport.crop_characteristics?.leaf_length_cm != null ? `${selectedReport.crop_characteristics.leaf_length_cm} cm` : 'Not provided'} />
+                <InfoRow label="Leaf width" value={selectedReport.crop_characteristics?.leaf_width_cm != null ? `${selectedReport.crop_characteristics.leaf_width_cm} cm` : 'Not provided'} />
+                <InfoRow label="Tillers" value={selectedReport.crop_characteristics?.tiller_count != null ? String(selectedReport.crop_characteristics.tiller_count) : 'Not provided'} />
+                <InfoRow label="Measurement date" value={selectedReport.crop_characteristics?.measurement_date || 'Not recorded'} />
+                <InfoRow label="Crop variety" value={selectedReport.crop_characteristics?.crop_variety || 'Not recorded'} />
+                <InfoRow label="Growth stage" value={selectedReport.crop_characteristics?.growth_stage || 'Not recorded'} />
+                <InfoRow label="Plants sampled" value={selectedReport.crop_characteristics?.sample_count != null ? String(selectedReport.crop_characteristics.sample_count) : 'Not recorded'} />
               </Card>
-              {selectedReport.follow_up_at ? <Card>
-                <Text style={styles.cardTitle}>{t('Latest SRA update')}</Text>
-                <InfoRow label={t('Scheduled follow-up')} value={selectedReport.follow_up_at} />
-              </Card> : null}
+              <ReportProgressTimeline report={selectedReport} />
               {selectedReport.photos.length > 0 ? <Card><Text style={styles.cardTitle}>Attached photos</Text>{selectedReport.photos.map(photo => <Text key={photo.id} style={styles.photoName}>{photo.name}</Text>)}</Card> : null}
               <PrivacyNote text="A farmer report is an observation for SRA review. The farmer's estimate is not an SRA diagnosis." />
             </>
@@ -742,7 +788,7 @@ export default function FarmerShell(props: {
               <Card>
                 <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Waiting to sync</Text><Pill text={String(queue.length)} tone="amber" /></View>
                 <Text style={styles.cardSub}>Reports are stored on this device and send automatically when the server is reachable.</Text>
-                {queue.map(item => <QueuedReportRow key={item.clientSubmissionId} item={item} />)}
+                {queue.map(item => <QueuedReportRow key={item.clientSubmissionId} item={item} uploadProgress={photoUploadProgress} networkConnected={networkConnected} busy={busy} onRetryPhoto={props.onRetryPhoto} />)}
                 <Button label={busy ? 'Syncing…' : 'Try sync now'} onPress={props.onSync} disabled={!networkConnected || busy} loading={busy} kind="light" />
               </Card>
             ) : null}
@@ -892,4 +938,12 @@ export default function FarmerShell(props: {
 function localDate(): string {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function decimalEntry(value: string): string {
+  const clean = value.replace(/[^0-9.]/g, '');
+  const dot = clean.indexOf('.');
+  return dot < 0
+    ? clean
+    : `${clean.slice(0, dot)}.${clean.slice(dot + 1).replace(/\./g, '').slice(0, 2)}`;
 }

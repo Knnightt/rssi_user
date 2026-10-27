@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {apiRequest, ApiError, AuthResponse, CommunityUpdate, FarmProperty, Farmer, FieldReport} from '../api';
-import {QueuedReport, readCache, readQueue, syncQueue, writeCache, writeQueue} from '../reportQueue';
+import {PhotoUploadProgress, QueuedReport, readCache, readQueue, retryQueuedPhoto, syncQueue, writeCache, writeQueue} from '../reportQueue';
 import {writeSecureJson} from '../secureStorage';
 
 export default function useFarmerWorkspace(
@@ -15,6 +15,7 @@ export default function useFarmerWorkspace(
   const [community, setCommunity] = useState<CommunityUpdate[]>([]);
   const [serverReachable, setServerReachable] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [photoUploadProgress, setPhotoUploadProgress] = useState<PhotoUploadProgress | null>(null);
   const [hydratedUserId, setHydratedUserId] = useState<number | null>(null);
   const syncLock = useRef(false);
   const userId = user?.id;
@@ -28,6 +29,7 @@ export default function useFarmerWorkspace(
       setQueue([]);
       setCommunity([]);
       setServerReachable(false);
+      setPhotoUploadProgress(null);
       setHydratedUserId(null);
       return () => {
         active = false;
@@ -160,7 +162,7 @@ export default function useFarmerWorkspace(
     setBusy(true);
     try {
       const hadQueuedReports = (await readQueue(userId)).length > 0;
-      const remaining = await syncQueue(userId, token);
+      const remaining = await syncQueue(userId, token, setPhotoUploadProgress, setQueue);
       setQueue(remaining);
       await refreshFromServer();
       setServerReachable(true);
@@ -174,6 +176,25 @@ export default function useFarmerWorkspace(
         onMessage(error.message);
       }
     } finally {
+      syncLock.current = false;
+      setBusy(false);
+    }
+  }, [token, userId, refreshFromServer, onMessage]);
+
+  const retryPhoto = useCallback(async (clientSubmissionId: string, photoId: string) => {
+    if (!token || !userId || syncLock.current) {
+      return;
+    }
+    syncLock.current = true;
+    setBusy(true);
+    try {
+      setQueue(await retryQueuedPhoto(userId, token, clientSubmissionId, photoId, setPhotoUploadProgress));
+      await refreshFromServer().catch(() => undefined);
+    } catch (error) {
+      setQueue(await readQueue(userId));
+      onMessage(error instanceof Error ? error.message : 'Could not retry that photo upload.');
+    } finally {
+      setPhotoUploadProgress(null);
       syncLock.current = false;
       setBusy(false);
     }
@@ -235,6 +256,7 @@ export default function useFarmerWorkspace(
     setQueue([]);
     setCommunity([]);
     setServerReachable(false);
+    setPhotoUploadProgress(null);
   }, []);
 
   return {
@@ -244,6 +266,7 @@ export default function useFarmerWorkspace(
     community,
     serverReachable,
     busy,
+    photoUploadProgress,
     isReady: userId === hydratedUserId,
     prepareAuthenticatedUser,
     updateFarmerName,
@@ -253,6 +276,7 @@ export default function useFarmerWorkspace(
     loadCommunity,
     markDisconnected,
     enqueueReport,
+    retryPhoto,
     confirmCommunityUpdate,
     clearWorkspace,
   };

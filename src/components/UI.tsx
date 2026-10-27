@@ -4,7 +4,7 @@ import {Asset, launchImageLibrary} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {CommunityUpdate, FarmProperty, FieldReport, getProfilePhotoUri} from '../api';
 import {Language, LocalizedText as Text, useLanguage} from '../i18n';
-import {QueuedReport} from '../reportQueue';
+import {PhotoUploadProgress, QueuedReport} from '../reportQueue';
 import {C, styles, ThemeMode, useTheme} from '../theme';
 import {
   avatarInitialStyle,
@@ -181,10 +181,53 @@ export function ReportRow({report, onPress}: {report: FieldReport; onPress?: () 
   </TouchableOpacity>;
 }
 
-export function QueuedReportRow({item}: {item: QueuedReport}) {
+export function QueuedReportRow({
+  item,
+  uploadProgress,
+  networkConnected,
+  busy,
+  onRetryPhoto,
+}: {
+  item: QueuedReport;
+  uploadProgress: PhotoUploadProgress | null;
+  networkConnected: boolean;
+  busy: boolean;
+  onRetryPhoto: (clientSubmissionId: string, photoId: string) => Promise<void>;
+}) {
+  const {t} = useLanguage();
+  const photoCount = item.photoCount ?? item.photos.length + (item.syncedPhotoCount ?? 0);
+  const syncedPhotoCount = item.syncedPhotoCount ?? 0;
+  const syncStatus = item.serverReportId
+    ? photoCount > 0
+      ? `${syncedPhotoCount}/${photoCount} ${t('photos synced')}`
+      : t('Report synced to RSSI')
+    : t('Report saved on this device · waiting to sync');
+
   return <View style={styles.reportRow}>
     <View style={[styles.reportRowIcon, styles.queuedReportIcon]}><Text style={[styles.reportRowIconText, styles.queuedReportIconText]}>↻</Text></View>
-    <View style={styles.flex}><NativeText style={styles.reportRowName}>{item.propertyName}</NativeText><NativeText style={styles.reportRowMeta}>{item.propertyMunicipality}, {item.propertyProvince}</NativeText><Text style={styles.reportRowSub}>{item.photos.length > 0 ? `Waiting to upload ${item.photos.length} photo${item.photos.length === 1 ? '' : 's'}` : 'Waiting for server connection'}</Text>{item.lastError ? <NativeText style={styles.queueError}>{item.lastError}</NativeText> : null}</View>
+    <View style={styles.flex}>
+      <NativeText style={styles.reportRowName}>{item.propertyName}</NativeText>
+      <NativeText style={styles.reportRowMeta}>{item.propertyMunicipality}, {item.propertyProvince}</NativeText>
+      <Text style={styles.reportRowSub}>{syncStatus}</Text>
+      {item.lastError ? <NativeText style={styles.queueError}>{item.lastError}</NativeText> : null}
+      {item.photos.map((photo, index) => {
+        const isUploading = uploadProgress?.clientSubmissionId === item.clientSubmissionId && uploadProgress.photoId === photo.id;
+        const photoStatus = isUploading
+          ? uploadProgress.percent == null ? t('Uploading…') : `${t('Uploading')} · ${uploadProgress.percent}%`
+          : photo.lastError ? t('Upload failed') : t('Saved on this device · waiting to upload');
+        return <View key={photo.id} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap'}}>
+          <NativeText style={{color: C.ink, fontSize: 11, flexShrink: 1}} numberOfLines={1}>{photo.name || `Photo ${index + 1}`}</NativeText>
+          <Text style={{color: isUploading ? C.blue : photo.lastError ? C.red : C.muted, fontSize: 10}}>{photoStatus}</Text>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`${t(photo.lastError ? 'Retry photo' : 'Upload photo')} ${index + 1}`}
+            onPress={() => void onRetryPhoto(item.clientSubmissionId, photo.id)}
+            disabled={!item.serverReportId || !networkConnected || busy || isUploading}
+            style={{paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.line, borderRadius: 7, opacity: !item.serverReportId || !networkConnected || busy || isUploading ? 0.5 : 1}}
+          ><Text style={{color: C.blue, fontSize: 10, fontWeight: '700'}}>{t(photo.lastError ? 'Retry photo' : 'Upload photo')}</Text></TouchableOpacity>
+        </View>;
+      })}
+    </View>
     <View style={styles.reportRowBadges}><SeverityBadge severity={String(item.body.farmerSeverity || 'Not assessed')} /><Pill text="Pending" tone="amber" /></View>
   </View>;
 }

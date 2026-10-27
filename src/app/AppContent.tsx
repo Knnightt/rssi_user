@@ -28,6 +28,7 @@ export default function AppContent() {
     community,
     serverReachable,
     busy,
+    photoUploadProgress,
     isReady: workspaceReady,
     prepareAuthenticatedUser,
     updateFarmerName,
@@ -37,6 +38,7 @@ export default function AppContent() {
     loadCommunity,
     markDisconnected,
     enqueueReport,
+    retryPhoto,
     confirmCommunityUpdate,
     clearWorkspace,
   } = workspace;
@@ -108,11 +110,13 @@ export default function AppContent() {
       networkConnected={connectivity.networkConnected}
       serverReachable={serverReachable}
       busy={busy}
+      photoUploadProgress={photoUploadProgress}
       notice={notice}
       clearNotice={() => setNotice('')}
       onMessage={setNotice}
       token={token}
       onReportQueued={handleReportQueued}
+      onRetryPhoto={retryPhoto}
       onSync={() => syncAndRefresh(true)}
       onRefresh={refreshCurrentScreen}
       onLoadCommunity={loadCommunity}

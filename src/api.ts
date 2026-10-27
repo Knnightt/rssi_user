@@ -26,6 +26,20 @@ export type FarmProperty = {
   location_consent: boolean;
 };
 
+export type ReportProgressEvent = {
+  id: string;
+  type: 'submitted' | 'review' | 'visit_scheduled' | 'visit_updated';
+  occurred_at: string;
+  verification_status?: string | null;
+  sra_severity?: string | null;
+  scheduled_for?: string | null;
+  completed_at?: string | null;
+  farmer_message?: string | null;
+  visit_status?: 'scheduled' | 'completed' | 'cancelled' | null;
+  findings?: string | null;
+  checkings?: Array<{label: string; result: string; finding: string | null}>;
+};
+
 export type FieldReport = {
   id: number;
   code: string;
@@ -43,6 +57,20 @@ export type FieldReport = {
   verification_status: string;
   sra_severity: string | null;
   follow_up_at?: string | null;
+  review_completed_at?: string | null;
+  farmer_message?: string | null;
+  progress?: ReportProgressEvent[];
+  crop_characteristics?: {
+    plant_height_cm: number | null;
+    leaves_per_stalk: number | null;
+    leaf_length_cm: number | null;
+    leaf_width_cm: number | null;
+    tiller_count: number | null;
+    measurement_date: string | null;
+    crop_variety: string | null;
+    growth_stage: string | null;
+    sample_count: number | null;
+  };
   photos: Array<{id: number; name: string; url: string}>;
 };
 
@@ -303,34 +331,61 @@ export function geocodeFarmAddress(address: FarmAddressGeocodeRequest): Promise<
   });
 }
 
-export async function uploadPhotos(
+export function uploadPhoto(
   reportId: number,
   token: string,
-  photos: Array<{id: string; uri: string; name: string; type: string}>,
+  photo: {id: string; uri: string; name: string; type: string},
+  onProgress?: (percent: number | null) => void,
 ): Promise<void> {
   const form = new FormData();
-  photos.forEach(photo => {
-    form.append('photos[]', {
-      uri: photo.uri.startsWith('file://') ? photo.uri : `file://${photo.uri}`,
-      name: photo.name,
-      type: photo.type,
-    } as unknown as Blob);
-    form.append('photo_ids[]', photo.id);
+  form.append('photos[]', {
+    uri: photo.uri.startsWith('file://') ? photo.uri : `file://${photo.uri}`,
+    name: photo.name,
+    type: photo.type,
+  } as unknown as Blob);
+  form.append('photo_ids[]', photo.id);
+
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `${getConfiguredApiBaseUrl()}${API_PREFIX}/farmers/me/reports/${reportId}/photos`);
+    request.timeout = 60_000;
+    request.setRequestHeader('Accept', 'application/json');
+    request.setRequestHeader('Authorization', `Bearer ${token}`);
+    request.setRequestHeader('ngrok-skip-browser-warning', 'true');
+    request.upload.onprogress = event => {
+      onProgress?.(event.lengthComputable && event.total > 0
+        ? Math.min(99, Math.floor((event.loaded / event.total) * 100))
+        : null);
+    };
+    request.onerror = () => reject(new ApiError(0, 'server_unavailable', 'Could not upload this report photo. It remains saved on this device.'));
+    request.ontimeout = () => reject(new ApiError(0, 'upload_timeout', 'Photo upload timed out. It remains saved on this device.'));
+    request.onabort = () => reject(new ApiError(0, 'upload_cancelled', 'Photo upload was interrupted. It remains saved on this device.'));
+    request.onload = () => {
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(request.responseText || '{}') as Record<string, unknown>;
+      } catch {
+        // Keep the generic response for non-JSON proxy or server errors.
+      }
+      if (request.status < 200 || request.status >= 300) {
+        const code = typeof body.error === 'string' ? body.error : `http_${request.status}`;
+        const message = request.status >= 500
+          ? 'Could not upload this report photo. It remains saved on this device.'
+          : typeof body.message === 'string'
+            ? body.message
+            : typeof body.detail === 'string'
+              ? body.detail
+              : humanizeCode(code);
+        reject(new ApiError(request.status, code, message));
+        return;
+      }
+      onProgress?.(100);
+      resolve();
+    };
+    try {
+      request.send(form);
+    } catch {
+      reject(new ApiError(0, 'server_unavailable', 'Could not upload this report photo. It remains saved on this device.'));
+    }
   });
-  const headers = new Headers({
-    Accept: 'application/json',
-    Authorization: `Bearer ${token}`,
-    'ngrok-skip-browser-warning': 'true',
-  });
-  let response: Response;
-  try {
-    response = await fetch(`${getConfiguredApiBaseUrl()}${API_PREFIX}/farmers/me/reports/${reportId}/photos`, {
-      method: 'POST',
-      headers,
-      body: form,
-    });
-  } catch {
-    throw new ApiError(0, 'server_unavailable', 'Could not upload report photos. They remain queued on this device.');
-  }
-  await decodeResponse(response);
 }
