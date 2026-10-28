@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Image, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
+import {BackHandler, Image, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {Asset} from 'react-native-image-picker';
@@ -24,6 +24,8 @@ export default function FarmerShell(props: {
   community: CommunityUpdate[];
   tab: Tab;
   setTab: (tab: Tab) => void;
+  onBack: () => void;
+  canGoBack: boolean;
   hasInternet: boolean;
   networkConnected: boolean;
   serverReachable: boolean;
@@ -101,6 +103,33 @@ export default function FarmerShell(props: {
   useEffect(() => {
     setProfileName(user.name);
   }, [user.name]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (locationEditProperty) {
+        setLocationEditProperty(null);
+        return true;
+      }
+      if (farmForm) {
+        setFarmForm(false);
+        return true;
+      }
+      if (profileEditing) {
+        setProfileEditing(false);
+        return true;
+      }
+      if (selectedReport) {
+        setSelectedReport(null);
+        return true;
+      }
+      if (tab !== 'home' || props.canGoBack) {
+        props.onBack();
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [locationEditProperty, farmForm, profileEditing, selectedReport, tab, props.canGoBack, props.onBack]);
 
   const selectedProperty = properties.find(property => property.id === selectedFarm) || properties[0];
   const refreshData = async () => {
@@ -596,6 +625,28 @@ export default function FarmerShell(props: {
             : tab === 'farms' ? 'Your farms'
               : tab === 'profile' ? 'My profile' : 'Help & support';
 
+  const hasInnerBack = Boolean(selectedReport || farmForm || profileEditing || locationEditProperty);
+  const showBackButton = hasInnerBack || props.canGoBack || tab !== 'home';
+  const handleBack = () => {
+    if (locationEditProperty) {
+      setLocationEditProperty(null);
+      return;
+    }
+    if (farmForm) {
+      setFarmForm(false);
+      return;
+    }
+    if (profileEditing) {
+      setProfileEditing(false);
+      return;
+    }
+    if (selectedReport) {
+      setSelectedReport(null);
+      return;
+    }
+    props.onBack();
+  };
+
   const renderCurrentScreen = () => {
     switch (tab) {
       case 'home':
@@ -905,6 +956,9 @@ export default function FarmerShell(props: {
   return (
     <SafeAreaView style={styles.appRoot} edges={['top', 'left', 'right', 'bottom']}>
       <View style={styles.appHeader}>
+        {showBackButton ? <TouchableOpacity style={styles.headerBackButton} onPress={handleBack} accessibilityRole="button" accessibilityLabel={t('Back')} hitSlop={6}>
+          <NativeText style={styles.headerBackText}>‹</NativeText>
+        </TouchableOpacity> : null}
         <View style={styles.headerBrand}><BrandMark /><View style={styles.headerBrandCopy}><Text style={styles.headerBrandName} numberOfLines={1}>{screenTitle}</Text><Text style={styles.headerBrandSub} numberOfLines={1}>RSSI · Negros Oriental & Negros Occidental</Text></View></View>
         <TouchableOpacity style={styles.headerAccount} onPress={() => setTab('profile')}>
           <View style={[styles.headerOnlineDot, networkConnected && serverReachable ? styles.onlineDot : styles.offlineDot]} />
