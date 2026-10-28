@@ -3,14 +3,14 @@ import {KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from
 import {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
-import {captureFarmCoordinates, FarmCoordinates} from '../location';
+import {captureFarmCoordinates, farmLocationSourceLabel, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {DropdownField} from '../components/DropdownField';
 import negrosLocations from '../data/negrosLocations.json';
 import {styles} from '../theme';
 import {RegisterFields} from '../types';
 import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ProfilePhotoPicker, ToggleLine} from '../components/UI';
-import {LocalizedText as Text} from '../i18n';
+import {LocalizedText as Text, useLanguage} from '../i18n';
 import {useTheme} from '../theme';
 import {readSecure, removeSecure, writeSecure} from '../secureStorage';
 
@@ -64,6 +64,7 @@ export default function AuthScreen({
   initialMessage: string;
 }) {
   useTheme();
+  const {t} = useLanguage();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [loginUsername, setLoginUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -168,7 +169,7 @@ export default function AuthScreen({
         throw new Error('Could not find this address. Move the pin on the map instead.');
       }
       geocodedAddressKey.current = lookupKey;
-      setCoordinates({latitude: result.latitude, longitude: result.longitude});
+      setCoordinates({latitude: result.latitude, longitude: result.longitude, source: 'address_lookup'});
       setAddressLookupMessage(result.formattedAddress
         ? `Suggested map match: ${result.formattedAddress}. Check the pin and move it if needed.`
         : 'Address found. Check the pin and move it to your exact farm location.');
@@ -241,7 +242,7 @@ export default function AuthScreen({
         barangay,
       });
       if (revision === locationRequestRevision.current) {
-        setCoordinates({latitude: result.latitude, longitude: result.longitude});
+        setCoordinates({latitude: result.latitude, longitude: result.longitude, source: 'address_lookup'});
         setLocationMessage(`Map centered on ${barangay}. Move the pin if your farm is elsewhere.`);
       }
     } catch (lookupError) {
@@ -333,6 +334,8 @@ export default function AuthScreen({
           sizeHectares: Number(fields.sizeHectares),
           latitude: preciseLocationConsent ? coordinates?.latitude ?? null : null,
           longitude: preciseLocationConsent ? coordinates?.longitude ?? null : null,
+          locationSource: preciseLocationConsent && coordinates ? coordinates.source || 'unknown' : 'unknown',
+          gpsAccuracyMeters: preciseLocationConsent && coordinates?.source === 'gps' ? coordinates.accuracy ?? null : null,
           locationConsent: preciseLocationConsent,
         });
       }
@@ -417,9 +420,10 @@ export default function AuthScreen({
     {coordinates ? <View style={styles.coordinatesWrap}>
       <Text style={styles.coordinatesText}>Selected farm pin</Text>
       <Text style={styles.coordinatesText}>{coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
-      {coordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(coordinates.accuracy)} m</Text> : null}
+      <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(coordinates.source))}</Text>
+      {coordinates.source === 'gps' && coordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(coordinates.accuracy)} m</Text> : null}
     </View> : null}
-    <Text style={styles.helperText}>Map tiles require an internet connection.</Text>
+    <Text style={styles.helperText}>{t('Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.')}</Text>
     <ToggleLine
       title="Show this farm in SRA Map Monitoring"
       description="Save a pin for authorized SRA staff only. Leave this off to keep the exact location private."

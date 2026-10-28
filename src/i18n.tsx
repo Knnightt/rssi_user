@@ -9,6 +9,9 @@ type LanguageContextValue = {language: Language; setLanguage: (value: Language) 
 const languageStorageKey = 'rssi_app_language';
 
 const tagalog: Record<string, string> = {
+  'Coordinates': 'Mga koordinado', 'Pin source': 'Pinagmulan ng pin', 'GPS accuracy': 'Katumpakan ng GPS',
+  'GPS fix': 'Nakuha mula sa GPS', 'Address lookup estimate': 'Tantiya mula sa paghahanap ng address',
+  'Placed on map': 'Inilagay sa mapa', 'Boundary drawn on map': 'Hangganang iginuhit sa mapa', 'Origin not recorded': 'Hindi naitala ang pinagmulan',
   'Crop characteristics': 'Mga katangian ng pananim',
   'Optional farmer observations. Measurements in centimeters; leave any unknown value blank.': 'Opsyonal na obserbasyon ng magsasaka. Sentimetro ang sukat; iwanang blangko ang hindi alam.',
   'Plant height (cm)': 'Taas ng halaman (cm)', 'Number of leaves in a stalk': 'Bilang ng dahon sa isang tangkay',
@@ -249,6 +252,8 @@ const tagalog: Record<string, string> = {
   'Agreement is not an official verification.': 'Hindi opisyal na beripikasyon ang pagsang-ayon.',
   'I observed something similar': 'May kahalintulad akong naobserbahan', 'You agreed with this observation': 'Sumang-ayon ka sa obserbasyong ito',
   'Map data © OpenStreetMap contributors': 'Datos ng mapa © mga kontribyutor ng OpenStreetMap',
+  'Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.': 'Gumagamit ng datos ng OpenStreetMap ang mapa ng kalsada. Kailangan ng internet para sa mga tile; hiwalay na gumagana ang GPS.',
+  'Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.': 'I-drag ang mapa gamit ang isang daliri. Kurutin gamit ang dalawang daliri para mag-zoom. I-tap para ilagay ang pin.',
   'Your farm location': 'Lokasyon ng iyong sakahan', 'Farm area: not recorded': 'Lawak ng sakahan: hindi naitala',
   'No farmer report submitted': 'Wala pang isinumiteng ulat ng magsasaka', 'Latest farmer-reported severity: ': 'Pinakabagong antas ng pinsalang iniulat ng magsasaka: ',
   ' damage': ' na pinsala', 'crop damage': 'pinsala sa pananim', 'Loading map…': 'Nilo-load ang mapa…',
@@ -308,6 +313,9 @@ const tagalog: Record<string, string> = {
 };
 
 const cebuano: Record<string, string> = {
+  'Coordinates': 'Mga koordinado', 'Pin source': 'Gigikanan sa pin', 'GPS accuracy': 'Katukma sa GPS',
+  'GPS fix': 'Nakuha pinaagi sa GPS', 'Address lookup estimate': 'Banabana gikan sa pagpangita sa adres',
+  'Placed on map': 'Gibutang sa mapa', 'Boundary drawn on map': 'Utlanan nga gidrowing sa mapa', 'Origin not recorded': 'Wala natala ang gigikanan',
   'Crop characteristics': 'Mga kinaiya sa tanom',
   'Optional farmer observations. Measurements in centimeters; leave any unknown value blank.': 'Opsyonal nga obserbasyon sa mag-uuma. Sentimetro ang sukod; biyaang blangko kon wala mahibaloi.',
   'Plant height (cm)': 'Gitas-on sa tanom (cm)', 'Number of leaves in a stalk': 'Kadaghanon sa dahon sa usa ka tukog',
@@ -385,6 +393,8 @@ const cebuano: Record<string, string> = {
   'Location privacy': 'Pribasiya sa lokasyon', 'Selected report': 'Napiling report', 'No reports match these filters': 'Walay report nga motakdo sa mga filter',
   'Choose your exact farm location': 'Pilia ang eksaktong lokasyon sa imong umahan', 'Selected farm pin': 'Napiling pin sa umahan',
   'Map tiles require an internet connection.': 'Kinahanglan og koneksyon sa internet aron mogana ang mapa.',
+  'Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.': 'OpenStreetMap ang datos sa mapa sa kalsada. Kinahanglan og internet para sa mga tile; lahi nga molihok ang GPS.',
+  'Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.': 'I-drag ang mapa gamit ang usa ka tudlo. Kuruta gamit ang duha ka tudlo aron mag-zoom. I-tap aron ibutang ang pin.',
   'Save this precise farm location (optional)': 'I-save kining eksaktong lokasyon sa umahan (opsyonal)',
   'Use my current location': 'Gamita ang akong kasamtangang lokasyon',
   'Enter your email and password to continue.': 'Isulod ang imong email ug password aron mopadayon.',

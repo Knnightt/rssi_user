@@ -24,6 +24,8 @@ export type FarmProperty = {
   latitude: number | null;
   longitude: number | null;
   location_consent: boolean;
+  location_source?: 'gps' | 'address_lookup' | 'manual' | 'boundary' | 'unknown' | null;
+  gps_accuracy_m?: number | null;
 };
 
 export type ReportProgressEvent = {

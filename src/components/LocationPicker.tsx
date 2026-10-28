@@ -70,7 +70,7 @@ export function LocationPicker({
         return;
       }
       if (message.type === 'location' && Number.isFinite(message.latitude) && Number.isFinite(message.longitude)) {
-        onChange({latitude: Number(message.latitude), longitude: Number(message.longitude)});
+        onChange({latitude: Number(message.latitude), longitude: Number(message.longitude), source: 'manual'});
       }
     } catch {
       // Ignore malformed messages from the embedded map.

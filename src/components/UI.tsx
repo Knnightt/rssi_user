@@ -3,6 +3,7 @@ import {ActivityIndicator, Image, Modal, PanResponder, Switch, Text as NativeTex
 import {Asset, launchImageLibrary} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {CommunityUpdate, FarmProperty, FieldReport, getProfilePhotoUri} from '../api';
+import {farmLocationSourceLabel} from '../location';
 import {Language, LocalizedText as Text, useLanguage} from '../i18n';
 import {PhotoUploadProgress, QueuedReport} from '../reportQueue';
 import {C, styles, ThemeMode, useTheme} from '../theme';
@@ -150,10 +151,14 @@ export function QuickAction({icon, label, color, onPress}: {icon: string; label:
 
 export function FarmRow({property, onPress, selected}: {property: FarmProperty; onPress: () => void; selected: boolean}) {
   const {t} = useLanguage();
+  const hasPin = property.latitude !== null && property.longitude !== null;
+  const pinDetails = property.location_source
+    ? `${t(farmLocationSourceLabel(property.location_source))}${property.location_source === 'gps' && property.gps_accuracy_m !== null && property.gps_accuracy_m !== undefined ? ` · ±${Math.round(property.gps_accuracy_m)} m` : ''}`
+    : t('Pin saved');
   return <TouchableOpacity style={[styles.farmRow, selected && styles.farmRowSelected]} onPress={onPress}>
     <View style={styles.farmPin}><Text style={styles.farmPinText}>⌖</Text></View>
     <View style={styles.flex}><NativeText style={styles.farmName}>{property.name}</NativeText><NativeText style={styles.farmAddress}>{property.address || [property.barangay, property.municipality, property.province].filter(Boolean).join(' · ')}</NativeText></View>
-    <View style={styles.farmMeta}><Text style={styles.farmArea}>{property.size_hectares ? `${property.size_hectares} ha` : t('Size not set')}</Text><Text style={styles.farmPinStatus}>{property.latitude !== null && property.longitude !== null ? t('Pin saved') : t('Area only')}</Text></View>
+    <View style={styles.farmMeta}><Text style={styles.farmArea}>{property.size_hectares ? `${property.size_hectares} ha` : t('Size not set')}</Text><Text style={styles.farmPinStatus}>{hasPin ? pinDetails : t('Area only')}</Text></View>
   </TouchableOpacity>;
 }
 

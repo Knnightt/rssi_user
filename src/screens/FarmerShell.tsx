@@ -5,7 +5,7 @@ import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
-import {captureFarmCoordinates, FarmCoordinates} from '../location';
+import {captureFarmCoordinates, FarmCoordinates, farmLocationSourceLabel} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {DropdownField} from '../components/DropdownField';
 import {ReportProgressTimeline} from '../components/ReportProgressTimeline';
@@ -198,6 +198,8 @@ export default function FarmerShell(props: {
           sizeHectares: farmValues.size ? Number(farmValues.size) : null,
           latitude: farmLocationConsent ? farmCoordinates?.latitude ?? null : null,
           longitude: farmLocationConsent ? farmCoordinates?.longitude ?? null : null,
+          locationSource: farmLocationConsent && farmCoordinates ? farmCoordinates.source || 'unknown' : 'unknown',
+          gpsAccuracyMeters: farmLocationConsent && farmCoordinates?.source === 'gps' ? farmCoordinates.accuracy ?? null : null,
           locationConsent: farmLocationConsent,
         }),
       });
@@ -321,7 +323,7 @@ export default function FarmerShell(props: {
         barangay,
       });
       if (request === farmLocationRequest.current) {
-        setFarmCoordinates({latitude: result.latitude, longitude: result.longitude});
+        setFarmCoordinates({latitude: result.latitude, longitude: result.longitude, source: 'address_lookup'});
         setFarmMessage(`Map centered on ${barangay}. Move the pin if your farm is elsewhere.`);
       }
     } catch (error) {
@@ -339,7 +341,12 @@ export default function FarmerShell(props: {
     setLocationEditProperty(property);
     setFarmLocationConsent(property.location_consent);
     setFarmCoordinates(property.location_consent && property.latitude !== null && property.longitude !== null
-      ? {latitude: Number(property.latitude), longitude: Number(property.longitude)}
+      ? {
+        latitude: Number(property.latitude),
+        longitude: Number(property.longitude),
+        source: property.location_source || 'unknown',
+        accuracy: property.gps_accuracy_m ?? undefined,
+      }
       : null);
   };
 
@@ -357,6 +364,8 @@ export default function FarmerShell(props: {
         body: JSON.stringify({
           latitude: farmCoordinates?.latitude ?? null,
           longitude: farmCoordinates?.longitude ?? null,
+          locationSource: farmLocationConsent && farmCoordinates ? farmCoordinates.source || 'unknown' : 'unknown',
+          gpsAccuracyMeters: farmLocationConsent && farmCoordinates?.source === 'gps' ? farmCoordinates.accuracy ?? null : null,
           locationConsent: farmLocationConsent,
         }),
       });
@@ -489,15 +498,17 @@ export default function FarmerShell(props: {
             onValueChange={value => {setFarmLocationConsent(value); if (!value) setFarmCoordinates(null);}}
           />
           {farmLocationConsent ? <>
-            <Text style={styles.helperText}>{t('Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin. Map tiles need internet.')}</Text>
+            <Text style={styles.helperText}>{t('Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.')}</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+            <Text style={styles.helperText}>{t('Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.')}</Text>
             <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
               setFarmLocationBusy(true);
               void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : t('Could not read location.'))).finally(() => setFarmLocationBusy(false));
             }} />
             {farmCoordinates ? <>
-              <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
-              {farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
+              <Text style={styles.coordinatesText}>{t('Coordinates')}: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
+              <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(farmCoordinates.source))}</Text>
+              {farmCoordinates.source === 'gps' && farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
             </> : <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text>}
           </> : <Text style={styles.helperText}>{t('Save this change to remove the exact pin from SRA Map Monitoring.')}</Text>}
           {!networkConnected ? <Text style={styles.helperText}>{t('Adding a farm needs a connection. You can still save reports about farms already on your account.')}</Text> : null}
@@ -546,8 +557,9 @@ export default function FarmerShell(props: {
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
             {farmLocationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
             {farmCoordinates ? <>
-              <Text style={styles.coordinatesText}>GPS: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
-              {farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>Device GPS accuracy: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
+              <Text style={styles.coordinatesText}>{t('Coordinates')}: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
+              <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(farmCoordinates.source))}</Text>
+              {farmCoordinates.source === 'gps' && farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
             </> : !farmLocationBusy ? <Text style={styles.helperText}>Choose a point on the map or use current location.</Text> : null}
             <Button label={farmLocationBusy ? 'Getting location…' : 'Use current location'} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={captureNewFarmLocation} />
             {!farmLocationConsent ? <Text style={styles.helperText}>The pin is only saved when you enable location consent above.</Text> : null}

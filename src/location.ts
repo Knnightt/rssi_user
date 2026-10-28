@@ -1,7 +1,18 @@
 import {PermissionsAndroid, Platform} from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 
-export type FarmCoordinates = {latitude: number; longitude: number; accuracy?: number};
+export type FarmLocationSource = 'gps' | 'address_lookup' | 'manual' | 'boundary' | 'unknown';
+export type FarmCoordinates = {latitude: number; longitude: number; accuracy?: number; source?: FarmLocationSource};
+
+export function farmLocationSourceLabel(source?: FarmLocationSource | null): string {
+  switch (source) {
+    case 'gps': return 'GPS fix';
+    case 'address_lookup': return 'Address lookup estimate';
+    case 'manual': return 'Placed on map';
+    case 'boundary': return 'Boundary drawn on map';
+    default: return 'Origin not recorded';
+  }
+}
 
 function readCurrentPosition(options: {
   enableHighAccuracy: boolean;
@@ -14,6 +25,7 @@ function readCurrentPosition(options: {
         latitude: Number(position.coords.latitude.toFixed(7)),
         longitude: Number(position.coords.longitude.toFixed(7)),
         accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined,
+        source: 'gps',
       }),
       error => reject(error),
       {...options, distanceFilter: 0},
