@@ -1,4 +1,4 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {AuthResponse} from '../api';
 import {QueuedReport} from '../reportQueue';
 import {Tab} from '../types';
@@ -10,6 +10,7 @@ import useNetworkSync from '../hooks/useNetworkSync';
 
 export default function AppContent() {
   const [tab, setTab] = useState<Tab>('home');
+  const tabHistory = useRef<Tab[]>([]);
   const [notice, setNotice] = useState('');
   const session = useFarmerSession(setNotice);
   const {
@@ -54,13 +55,21 @@ export default function AppContent() {
   const applyAuthentication = useCallback(async (auth: AuthResponse) => {
     await prepareAuthenticatedUser(auth);
     await applyAuth(auth);
+    tabHistory.current = [];
     setTab('home');
     setNotice('Welcome to RSSI. Your dashboard will show your saved farm and reports.');
   }, [prepareAuthenticatedUser, applyAuth]);
 
   const changeTab = useCallback((value: Tab) => {
+    if (value !== tab) tabHistory.current.push(tab);
     setNotice('');
     setTab(value);
+  }, [tab]);
+
+  const goBack = useCallback(() => {
+    const previousTab = tabHistory.current.pop();
+    setNotice('');
+    setTab(previousTab || 'home');
   }, []);
 
   const refreshCurrentScreen = useCallback(async () => {
@@ -73,6 +82,7 @@ export default function AppContent() {
   const signOut = useCallback(async () => {
     await signOutSession(connectivity.networkConnected);
     clearWorkspace();
+    tabHistory.current = [];
     setTab('home');
     setNotice('');
   }, [signOutSession, connectivity.networkConnected, clearWorkspace]);
@@ -82,12 +92,12 @@ export default function AppContent() {
       return;
     }
     await enqueueReport(item);
-    setTab('history');
+    changeTab('history');
     setNotice('Saved on this device. RSSI will submit it automatically when the server is reachable.');
     if (connectivity.networkConnected) {
       await syncAndRefresh(true);
     }
-  }, [user, enqueueReport, connectivity.networkConnected, syncAndRefresh]);
+  }, [user, enqueueReport, connectivity.networkConnected, syncAndRefresh, changeTab]);
 
   if (!appReady || (user && !workspaceReady)) {
     return <LoadingScreen />;
@@ -106,6 +116,8 @@ export default function AppContent() {
       community={community}
       tab={tab}
       setTab={changeTab}
+      onBack={goBack}
+      canGoBack={tabHistory.current.length > 0}
       hasInternet={connectivity.hasInternet}
       networkConnected={connectivity.networkConnected}
       serverReachable={serverReachable}

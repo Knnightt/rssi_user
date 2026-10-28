@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from 'react-native';
+import {BackHandler, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, View} from 'react-native';
 import {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
@@ -436,12 +436,37 @@ export default function AuthScreen({
     }
     setError('');
   };
+  const handleRegistrationBack = () => {
+    if (registerStep > 0) {
+      goBackStep();
+    } else {
+      setMode('login');
+      setError('');
+    }
+  };
+
+  useEffect(() => {
+    if (!isRegistering) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (registerStep > 0) {
+        setRegisterStep(step => step - 1);
+      } else {
+        setMode('login');
+      }
+      setError('');
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isRegistering, registerStep]);
 
   return (
     <SafeAreaView style={styles.authRoot}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" scrollEnabled={!mapGestureActive}>
           <View style={styles.authBrandRow}>
+            {isRegistering ? <TouchableOpacity style={styles.authBackButton} onPress={handleRegistrationBack} accessibilityRole="button" accessibilityLabel="Back" hitSlop={6}>
+              <Text style={styles.authBackText}>‹</Text>
+            </TouchableOpacity> : null}
             <BrandMark large />
             <View style={styles.flex}>
               <Text style={styles.brandName}>RSSI</Text>

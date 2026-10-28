@@ -1,5 +1,6 @@
 import React, {useMemo, useState} from 'react';
 import {FlatList, Modal, TextInput, TouchableOpacity, View} from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {LocalizedText as Text, useLanguage} from '../i18n';
 import {C, styles} from '../theme';
 
@@ -50,7 +51,7 @@ export function DropdownField({
         <Text style={styles.dropdownChevron}>⌄</Text>
       </TouchableOpacity>
       <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-        <View style={styles.dropdownBackdrop}>
+        <SafeAreaView edges={['bottom']} style={styles.dropdownBackdrop}>
           <View style={styles.dropdownSheet}>
             <View style={styles.dropdownHeader}>
               <Text style={styles.dropdownTitle}>{label}</Text>
@@ -84,7 +85,7 @@ export function DropdownField({
               ListEmptyComponent={<Text style={styles.dropdownEmpty}>{t('No matches')}</Text>}
             />
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
     </View>
   );

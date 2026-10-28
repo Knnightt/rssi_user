@@ -41,6 +41,14 @@ export function createLightStyles(C: StylePalette) {
       borderBottomColor: C.green,
       borderBottomWidth: 3,
     },
+    authBackButton: {
+      width: 34,
+      height: 40,
+      marginRight: 7,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    authBackText: { color: C.paper, fontSize: 34, lineHeight: 38, marginTop: -3 },
     brandName: {
       color: C.paper,
       fontSize: 20,
@@ -144,6 +152,16 @@ export function createLightStyles(C: StylePalette) {
       borderBottomColor: C.green,
       borderBottomWidth: 3,
     },
+    headerBackButton: {
+      width: 34,
+      height: 42,
+      marginRight: 7,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 10,
+      backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    headerBackText: { color: C.paper, fontSize: 34, lineHeight: 38, marginTop: -3, fontWeight: '500' },
     headerBrand: {
       flexDirection: 'row',
       alignItems: 'center',
