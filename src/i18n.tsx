@@ -9,6 +9,7 @@ type LanguageContextValue = {language: Language; setLanguage: (value: Language) 
 const languageStorageKey = 'rssi_app_language';
 
 const tagalog: Record<string, string> = {
+  'Like': 'I-like', 'Liked': 'Ni-like', 'Unlike': 'Alisin ang like',
   'Coordinates': 'Mga koordinado', 'Pin source': 'Pinagmulan ng pin', 'GPS accuracy': 'Katumpakan ng GPS',
   'Enter GPS coordinates': 'Ilagay ang GPS coordinates', 'Latitude': 'Latitude', 'Longitude': 'Longitude',
   'Use decimal degrees, then tap Set map pin. Latitude: -90 to 90; longitude: -180 to 180.': 'Gumamit ng decimal degrees at i-tap ang Itakda ang pin sa mapa. Latitude: -90 hanggang 90; longitude: -180 hanggang 180.',
@@ -291,6 +292,8 @@ const tagalog: Record<string, string> = {
   'Your email is saved as account contact information. Sign-in always uses your username.': 'Ise-save ang email mo bilang impormasyon sa pakikipag-ugnayan. Username ang laging gagamitin sa pag-sign in.',
   'When you create your account, RSSI will sign you in automatically.': 'Awtomatikong magla-login ang RSSI kapag ginawa mo ang account.',
   'Create account': 'Gumawa ng account',
+  'I have read and agree to the Terms and Conditions.': 'Nabasa ko at sumasang-ayon ako sa Mga Tuntunin at Kundisyon.',
+  'You must agree to the Terms and Conditions before creating your account.': 'Kailangan mong sumang-ayon sa Mga Tuntunin at Kundisyon bago gawin ang iyong account.',
   'Creating account…': 'Ginagawa ang account…',
   'Next': 'Susunod',
   'Back': 'Bumalik',
@@ -317,6 +320,7 @@ const tagalog: Record<string, string> = {
 };
 
 const cebuano: Record<string, string> = {
+  'Like': 'Ganahan', 'Liked': 'Ganahan na', 'Unlike': 'Kuhaa ang ganahan',
   'Coordinates': 'Mga koordinado', 'Pin source': 'Gigikanan sa pin', 'GPS accuracy': 'Katukma sa GPS',
   'Enter GPS coordinates': 'Ibutang ang GPS coordinates', 'Latitude': 'Latitude', 'Longitude': 'Longitude',
   'Use decimal degrees, then tap Set map pin. Latitude: -90 to 90; longitude: -180 to 180.': 'Gamita ang decimal degrees, dayon i-tap ang Itakda ang pin sa mapa. Latitude: -90 hangtod 90; longitude: -180 hangtod 180.',
@@ -409,6 +413,9 @@ const cebuano: Record<string, string> = {
   'Could not save the farm.': 'Dili ma-save ang umahan.', 'Could not update your profile.': 'Dili ma-update ang imong profile.',
   'Your profile was updated.': 'Na-update ang imong profile.', 'Enter your name before saving.': 'Isulod ang imong ngalan una sa pag-save.',
   'Active': 'Aktibo', 'Inactive': 'Dili aktibo', 'Size not set': 'Wala matakda ang gidak-on', 'Pin saved': 'Na-save ang pin', 'Area only': 'Gidak-on lamang',
+  'Submitting sends this report and its photos to authorized SRA staff for review. This happens automatically. You can choose separately whether to share an anonymized observation with other farmers below.': 'Awtomatikong ipadala ang report ug mga litrato niini sa awtorisadong kawani sa SRA aron susihon. Ikaw ang mopili kon ipaambit ang obserbasyon nga walay pagkatawo sa ubang mag-uuma.',
+  'Share an anonymized observation with the farmer community': 'Ipaambit ang obserbasyon nga walay pagkatawo sa komunidad sa mga mag-uuma',
+  'Optional. Other farmers can see this report and its attached photos. Your name, farm name, barangay, and exact location stay private.': 'Opsyonal. Makita sa ubang mag-uuma kining report ug ang mga gilakip nga litrato. Pribado gihapon ang imong ngalan, ngalan sa umahan, barangay, ug eksaktong lokasyon.',
   'Loading map…': 'Gikarga ang mapa…', 'Support': 'Suporta', 'Map data': 'Datos sa mapa', 'Privacy': 'Pribasiya',
   'FARMER ACCOUNT': 'ACCOUNT SA MAG-UUMA', 'Pinned location': 'Lokasyon nga adunay pin', 'Your password': 'Imong password',
   'Updates need internet': 'Kinahanglan og internet ang mga update', 'Welcome back': 'Maayong pagbalik',
@@ -423,6 +430,8 @@ const cebuano: Record<string, string> = {
   'Username for login *': 'Username para sa pag-login *', 'Choose a username': 'Pagpili og username',
   'Email address *': 'Adres sa email *', 'Phone number *': 'Numero sa telepono *',
   'Next': 'Sunod', 'Back': 'Balik', 'Create account': 'Paghimo og account',
+  'I have read and agree to the Terms and Conditions.': 'Nabasa nako ug miuyon ko sa mga Termino ug Kondisyon.',
+  'You must agree to the Terms and Conditions before creating your account.': 'Kinahanglan mouyon ka sa mga Termino ug Kondisyon sa dili pa maghimo sa imong account.',
   'The passwords do not match. Check both fields and try again.': 'Dili magkaparehas ang mga password. Susiha ang duha ka field ug sulayi pag-usab.',
   'Confirm your password to continue.': 'Kumpirmahi ang password aron mopadayon.',
   'Choose a password with at least 10 characters.': 'Paghimo og password nga adunay labing menos 10 ka karakter.',

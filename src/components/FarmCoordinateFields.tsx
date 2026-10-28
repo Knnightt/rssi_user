@@ -61,7 +61,6 @@ export function FarmCoordinateFields({
   return (
     <View style={styles.coordinateFields}>
       <Text style={styles.inputLabel}>{t('Enter GPS coordinates')}</Text>
-      <Text style={styles.helperText}>{t('Use decimal degrees, then tap Set map pin. Latitude: -90 to 90; longitude: -180 to 180.')}</Text>
       <View style={styles.coordinateInputRow}>
         <View style={styles.coordinateInputCell}>
           <Field
@@ -72,6 +71,7 @@ export function FarmCoordinateFields({
             keyboardType="numbers-and-punctuation"
             autoCapitalize="none"
             autoCorrect={false}
+            letterSpacing={1.5}
           />
         </View>
         <View style={styles.coordinateInputCell}>
@@ -83,6 +83,7 @@ export function FarmCoordinateFields({
             keyboardType="numbers-and-punctuation"
             autoCapitalize="none"
             autoCorrect={false}
+            letterSpacing={1.5}
           />
         </View>
       </View>

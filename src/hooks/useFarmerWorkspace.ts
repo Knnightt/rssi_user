@@ -225,26 +225,6 @@ export default function useFarmerWorkspace(
     await writeQueue(user.id, next);
   }, [user]);
 
-  const confirmCommunityUpdate = useCallback(async (id: number | string) => {
-    if (!token) {
-      return;
-    }
-    try {
-      const result = await apiRequest<{confirmation_count: number; confirmed_by_me: boolean}>(
-        `/farmers/me/community/reports/${id}/confirm`,
-        token,
-        {method: 'POST'},
-      );
-      setCommunity(current => current.map(item => item.id === id ? {
-        ...item,
-        confirmation_count: result.confirmation_count,
-        confirmed_by_me: result.confirmed_by_me,
-      } : item));
-    } catch (error) {
-      onMessage(error instanceof Error ? error.message : 'Could not send your community response.');
-    }
-  }, [token, onMessage]);
-
   const markDisconnected = useCallback(() => {
     setCommunity([]);
     setServerReachable(false);
@@ -277,7 +257,6 @@ export default function useFarmerWorkspace(
     markDisconnected,
     enqueueReport,
     retryPhoto,
-    confirmCommunityUpdate,
     clearWorkspace,
   };
 }

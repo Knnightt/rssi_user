@@ -3,14 +3,14 @@ import {BackHandler, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacit
 import {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
-import {captureFarmCoordinates, farmLocationSourceLabel, FarmCoordinates} from '../location';
+import {captureFarmCoordinates, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {FarmCoordinateFields} from '../components/FarmCoordinateFields';
 import {DropdownField} from '../components/DropdownField';
 import negrosLocations from '../data/negrosLocations.json';
 import {styles} from '../theme';
 import {RegisterFields} from '../types';
-import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ProfilePhotoPicker, ToggleLine} from '../components/UI';
+import {BrandMark, Button, CheckBoxLine, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ProfilePhotoPicker, ToggleLine} from '../components/UI';
 import {LocalizedText as Text, useLanguage} from '../i18n';
 import {useTheme} from '../theme';
 import {readSecure, writeSecure} from '../secureStorage';
@@ -77,6 +77,7 @@ export default function AuthScreen({
     municipality: '', barangay: '', address: '', sizeHectares: '',
   });
   const [profilePhoto, setProfilePhoto] = useState<Asset | null>(null);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialMessage);
   const [preciseLocationConsent, setPreciseLocationConsent] = useState(false);
@@ -304,6 +305,10 @@ export default function AuthScreen({
   };
 
   const finishRegistration = async () => {
+    if (!agreedToTerms) {
+      setError('You must agree to the Terms and Conditions before creating your account.');
+      return;
+    }
     const email = fields.email.trim().toLowerCase();
     const phone = fields.phoneNumber.trim();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -388,7 +393,6 @@ export default function AuthScreen({
 
   const renderFarmFields = () => <>
     <Button label={locationBusy ? 'Getting device location…' : 'Use device location to fill farm details'} onPress={() => void captureLocation()} disabled={locationBusy} loading={locationBusy} />
-    <Text style={styles.helperText}>This fills the address fields and map pin where available. Review the details, enter the farm name and area, and move the pin if needed. Coordinates are sent to OpenStreetMap for address lookup; the exact pin is shared with SRA only if you enable location sharing.</Text>
     {locationMessage ? <Text style={styles.helperText}>{locationMessage}</Text> : null}
     <Field label="Farm / plot name *" value={fields.propertyName} onChangeText={value => setField('propertyName', value)} placeholder="Farm name or landmark" autoCapitalize="words" autoCorrect={false} />
     <View style={styles.fieldRow}>
@@ -413,21 +417,17 @@ export default function AuthScreen({
       <View style={styles.fieldNarrow}><Field label="Farm area (ha) *" value={fields.sizeHectares} onChangeText={value => setField('sizeHectares', value.replace(/[^0-9.]/g, ''))} placeholder="0.00" keyboardType="decimal-pad" autoCorrect={false} /></View>
     </View>
     <Field label="Complete farm address *" value={fields.address} onChangeText={changeAddress} onBlur={() => void locateEnteredAddress()} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" autoCorrect={false} />
-    <Text style={styles.helperText}>The device location or address can suggest a map pin. Review it and move the pin to your exact farm location.</Text>
     {addressLookupMessage ? <Text style={styles.helperText}>{addressLookupMessage}</Text> : null}
     <Text style={[styles.inputLabel, styles.locationPickerTitle]}>Choose your exact farm location</Text>
-    <Notice text="Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin." tone="info" />
     <LocationPicker value={coordinates} onChange={moveMapPin} onGestureActive={setMapGestureActive} />
     <FarmCoordinateFields value={coordinates} onChange={moveMapPin} />
     {coordinates ? <View style={styles.coordinatesWrap}>
       <Text style={styles.coordinatesText}>Selected farm pin</Text>
-      <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(coordinates.source))}</Text>
       {coordinates.source === 'gps' && coordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(coordinates.accuracy)} m</Text> : null}
     </View> : null}
-    <Text style={styles.helperText}>{t('Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.')}</Text>
     <ToggleLine
       title="Show this farm in SRA Map Monitoring"
-      description="Save a pin for authorized SRA staff only. Leave this off to keep the exact location private."
+      description=""
       value={preciseLocationConsent}
       onValueChange={setPreciseLocationConsent}
     />
@@ -483,21 +483,14 @@ export default function AuthScreen({
           <View style={styles.authCard}>
             <View style={styles.eyebrow}><Text style={styles.eyebrowText}>FARMER ACCOUNT</Text></View>
             <Text style={styles.authTitle}>{isRegistering ? registrationSteps[registerStep] : 'Welcome back'}</Text>
-            <Text style={styles.authSub}>
-              {isRegistering
-                ? 'Create your RSSI farmer account in a few quick steps.'
-                : 'Sign in to view your farms and report sugarcane observations.'}
-            </Text>
             {error ? <Notice text={error} tone="error" /> : null}
             {isRegistering ? <>
-              <View style={styles.authStepBadge}><Pill text={`STEP ${registerStep + 1} OF 4`} tone="blue" /><Text style={styles.helperText}>{registrationSteps[registerStep]}</Text></View>
+              <View style={styles.authStepBadge}><Pill text={`STEP ${registerStep + 1} OF 4`} tone="blue" /></View>
               {registerStep === 0 ? <>
                 <Field label="Full name *" value={fields.name} onChangeText={value => setField('name', value)} placeholder="Enter your full name" autoCapitalize="words" autoCorrect={false} />
-                <Text style={styles.helperText}>Enter the name you use for your farmer account and reports.</Text>
               </> : null}
               {registerStep === 1 ? <>
                 <Field label="Username for login *" value={fields.username} onChangeText={value => setField('username', value)} placeholder="Choose a username" autoCapitalize="none" autoCorrect={false} />
-                <Text style={styles.helperText}>Use this username whenever you sign in. Add your email address in profile information.</Text>
                 <Field label="Password (10 characters minimum) *" value={fields.password} onChangeText={value => setField('password', value)} placeholder="Create a password" secureTextEntry showPasswordToggle autoCapitalize="none" autoCorrect={false} />
                 <Field label="Confirm password *" value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Enter your password again" secureTextEntry showPasswordToggle autoCapitalize="none" autoCorrect={false} />
               </> : null}
@@ -511,10 +504,9 @@ export default function AuthScreen({
               </> : null}
               {registerStep === 3 ? <>
                 <Field label="Email address *" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
-                <Text style={styles.helperText}>Your email is saved as account contact information. Sign-in always uses your username.</Text>
                 <Field label="Phone number *" value={fields.phoneNumber} onChangeText={value => setField('phoneNumber', value)} placeholder="09XX XXX XXXX" keyboardType="numeric" autoCapitalize="none" autoCorrect={false} />
                 <ProfilePhotoPicker name={fields.name} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={busy} />
-                <Text style={styles.helperText}>When you create your account, RSSI will sign you in automatically.</Text>
+                <CheckBoxLine label={t('I have read and agree to the Terms and Conditions.')} checked={agreedToTerms} onToggle={() => setAgreedToTerms(value => !value)} />
               </> : null}
               <View style={styles.buttonRow}>
                 {registerStep > 0 ? <View style={styles.flex}><Button label="Back" kind="light" onPress={goBackStep} disabled={busy} /></View> : null}
@@ -531,7 +523,6 @@ export default function AuthScreen({
           </View>
           <View style={styles.authFooter}>
             <Text style={styles.authFooterText}>SRA • Negros Oriental & Negros Occidental</Text>
-            <Text style={styles.authFooterSub}>Use the official RSSI server account provided by your team.</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

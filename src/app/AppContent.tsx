@@ -40,7 +40,6 @@ export default function AppContent() {
     markDisconnected,
     enqueueReport,
     retryPhoto,
-    confirmCommunityUpdate,
     clearWorkspace,
   } = workspace;
   const connectivity = useNetworkSync({
@@ -57,7 +56,7 @@ export default function AppContent() {
     await applyAuth(auth);
     tabHistory.current = [];
     setTab('home');
-    setNotice('Welcome to RSSI. Your dashboard will show your saved farm and reports.');
+    setNotice('');
   }, [prepareAuthenticatedUser, applyAuth]);
 
   const changeTab = useCallback((value: Tab) => {
@@ -135,7 +134,6 @@ export default function AppContent() {
       onSignOut={signOut}
       onUpdateFarmerName={updateFarmerName}
       onProfilePhotoUpdated={updateFarmerPhoto}
-      onCommunityConfirmed={confirmCommunityUpdate}
     />
   );
 }

@@ -413,7 +413,7 @@ export function createLightStyles(C: StylePalette) {
     buttonRow: { flexDirection: 'row', gap: 8 },
     dashboardSearch: {
       minHeight: 43,
-      paddingHorizontal: 12,
+      paddingHorizontal: 16,
       borderWidth: 1,
       borderColor: '#C8D7E2',
       borderRadius: 8,
@@ -594,7 +594,7 @@ export function createLightStyles(C: StylePalette) {
     locationPickerTitle: { marginTop: 14 },
     input: {
       minHeight: 44,
-      paddingHorizontal: 11,
+      paddingHorizontal: 16,
       paddingVertical: 9,
       borderWidth: 1,
       borderColor: '#C9D6E0',
@@ -605,7 +605,7 @@ export function createLightStyles(C: StylePalette) {
     },
     dropdownTrigger: {
       minHeight: 44,
-      paddingHorizontal: 11,
+      paddingHorizontal: 16,
       borderWidth: 1,
       borderColor: '#C9D6E0',
       borderRadius: 6,
@@ -654,7 +654,7 @@ export function createLightStyles(C: StylePalette) {
     dropdownCloseText: { fontSize: 26, lineHeight: 29, color: C.muted },
     dropdownSearch: {
       minHeight: 46,
-      paddingHorizontal: 12,
+      paddingHorizontal: 16,
       borderWidth: 1,
       borderColor: '#C9D6E0',
       borderRadius: 8,

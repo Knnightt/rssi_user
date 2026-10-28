@@ -24,11 +24,11 @@ export function BrandMark({large = false}: {large?: boolean}) {
   return <Image source={require('../../assets/rssi-logo.png')} resizeMode="contain" style={[styles.brandMark, large && styles.brandMarkLarge]} accessibilityLabel={t('RSSI logo')} />;
 }
 
-export function PageIntro({eyebrow, title, subtitle, action}: {eyebrow: string; title: string; subtitle: string; action?: React.ReactNode}) {
+export function PageIntro({eyebrow, title, subtitle, action}: {eyebrow: string; title: string; subtitle?: string; action?: React.ReactNode}) {
   const {t} = useLanguage();
   return <View style={styles.pageIntro}>
     <View style={styles.pageIntroRow}><View style={styles.flex}><Text style={styles.pageEyebrow}>{t(eyebrow)}</Text><Text style={styles.pageTitle}>{t(title)}</Text></View>{action}</View>
-    <Text style={styles.pageSub}>{t(subtitle)}</Text>
+    {subtitle ? <Text style={styles.pageSub}>{t(subtitle)}</Text> : null}
   </View>;
 }
 
@@ -49,6 +49,7 @@ export function Field(props: {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   autoCorrect?: boolean;
   onBlur?: () => void;
+  letterSpacing?: number;
 }) {
   const {t} = useLanguage();
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -68,7 +69,7 @@ export function Field(props: {
         maxLength={props.maxLength}
         autoCapitalize={props.autoCapitalize || 'sentences'}
         autoCorrect={props.autoCorrect ?? (!props.secureTextEntry && props.keyboardType !== 'email-address')}
-        style={[styles.input, props.multiline && styles.multilineInput, canTogglePassword && {paddingRight: 52}]}
+        style={[styles.input, props.multiline && styles.multilineInput, props.letterSpacing !== undefined && {letterSpacing: props.letterSpacing}, canTogglePassword && {paddingRight: 52}]}
         textAlignVertical={props.multiline ? 'top' : 'center'}
       />
       {canTogglePassword ? <TouchableOpacity
@@ -113,9 +114,23 @@ export function Choice({label, active, onPress, compact = false}: {label: string
   </TouchableOpacity>;
 }
 
+export function CheckBoxLine({label, checked, onToggle}: {label: string; checked: boolean; onToggle: () => void}) {
+  return <TouchableOpacity
+    onPress={onToggle}
+    accessibilityRole="checkbox"
+    accessibilityState={{checked}}
+    style={{flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 12, gap: 12}}
+  >
+    <View style={{width: 24, height: 24, borderRadius: 5, borderWidth: 2, borderColor: checked ? C.green : '#91A3AF', backgroundColor: checked ? C.green : C.paper, alignItems: 'center', justifyContent: 'center', marginTop: 1}}>
+      {checked ? <NativeText style={{color: C.paper, fontSize: 17, lineHeight: 20, fontWeight: '700'}}>✓</NativeText> : null}
+    </View>
+    <Text style={[styles.bodyText, {flex: 1, marginTop: 0}]}>{label}</Text>
+  </TouchableOpacity>;
+}
+
 export function ToggleLine({title, description, value, onValueChange}: {title: string; description: string; value: boolean; onValueChange: (value: boolean) => void}) {
   return <View style={styles.toggleLine}>
-    <View style={styles.flex}><Text style={styles.toggleTitle}>{title}</Text><Text style={styles.helperText}>{description}</Text></View>
+    <View style={styles.flex}><Text style={styles.toggleTitle}>{title}</Text>{description ? <Text style={styles.helperText}>{description}</Text> : null}</View>
     <Switch value={value} onValueChange={onValueChange} trackColor={{false: '#CAD3E0', true: '#98D0AC'}} thumbColor={value ? C.green : '#FFFFFF'} />
   </View>;
 }
@@ -237,7 +252,7 @@ export function QueuedReportRow({
   </View>;
 }
 
-export function CommunityCard({item, onConfirm, disabled, token}: {item: CommunityUpdate; onConfirm: () => void; disabled: boolean; token: string}) {
+export function CommunityCard({item, token, liked, likesReady, onToggleLike}: {item: CommunityUpdate; token: string; liked: boolean; likesReady: boolean; onToggleLike: () => void}) {
   const {t} = useLanguage();
   const [viewerPhoto, setViewerPhoto] = useState<{uri: string; index: number} | null>(null);
   return <View style={styles.communityCard}>
@@ -262,8 +277,17 @@ export function CommunityCard({item, onConfirm, disabled, token}: {item: Communi
       })}
     </View> : null}
     <View style={styles.communityFoot}><Text style={styles.communityStatus}>{t('SRA status')}: {t(item.verification_status)}</Text><Text style={styles.communityStatus}>{t(`${item.confirmation_count} agreed`)}</Text></View>
-    <Button label={item.confirmed_by_me ? 'You agreed with this observation' : 'I observed something similar'} onPress={onConfirm} disabled={disabled} kind={item.confirmed_by_me ? 'light' : 'light'} />
-    <Text style={styles.helperText}>Agreement is not an official verification.</Text>
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityLabel={t(liked ? 'Unlike' : 'Like')}
+      accessibilityState={{selected: liked, disabled: !likesReady}}
+      disabled={!likesReady}
+      onPress={onToggleLike}
+      style={{minHeight: 34, alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: liked ? '#B8DCC7' : '#D5E0E5', backgroundColor: liked ? '#E8F4EC' : '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, opacity: likesReady ? 1 : 0.55}}
+    >
+      <NativeText style={{fontSize: 15, color: liked ? '#16834A' : '#667B8C'}}>{liked ? '♥' : '♡'}</NativeText>
+      <Text style={{color: liked ? '#16834A' : '#1766A8', fontWeight: '700', fontSize: 13}}>{t(liked ? 'Liked' : 'Like')}</Text>
+    </TouchableOpacity>
     {viewerPhoto ? <PhotoViewer
       uri={viewerPhoto.uri}
       token={token}
@@ -424,7 +448,6 @@ export function ProfilePhotoPicker({name, photoUrl, photoCacheKey, token, select
     <Avatar name={name} photoUrl={photoUrl} photoCacheKey={photoCacheKey} localUri={selectedPhoto?.uri} token={token} size={72} />
     <View style={styles.flex}>
       <Text style={styles.inputLabel}>Profile picture (optional)</Text>
-      <Text style={styles.helperText}>Use a clear photo so your SRA team can recognize your account.</Text>
       <Button label={selectedPhoto || photoUrl ? 'Change profile picture' : 'Choose profile picture'} onPress={choosePhoto} disabled={disabled} kind="light" />
       {error ? <Text style={styles.queueError}>{error}</Text> : null}
     </View>
@@ -441,7 +464,7 @@ export function NavButton({icon, label, active, onPress, badge = 0}: {icon: stri
 export function LanguageSwitcher({title = true}: {title?: boolean}) {
   const {language, setLanguage, t} = useLanguage();
   return <View style={styles.settingGroup}>
-    {title ? <><Text style={styles.inputLabel}>{t('App language')}</Text><Text style={styles.helperText}>{t('Choose the language used in the app.')}</Text></> : null}
+    {title ? <Text style={styles.inputLabel}>{t('App language')}</Text> : null}
     <View style={styles.languageOptionsRow}>
       {(['en', 'tl', 'ceb'] as Language[]).map(option => {
         const selected = language === option;
@@ -464,7 +487,6 @@ export function ThemeSwitcher() {
   ];
   return <View style={styles.settingGroup}>
     <Text style={styles.inputLabel}>{t('Appearance')}</Text>
-    <Text style={styles.helperText}>{t('Choose system, light, or dark appearance.')}</Text>
     <View style={styles.themeOptionsRow}>
       {options.map(option => {
         const selected = mode === option.mode;
