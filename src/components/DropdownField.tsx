@@ -2,7 +2,7 @@ import React, {useMemo, useState} from 'react';
 import {FlatList, Modal, TextInput, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {LocalizedText as Text, useLanguage} from '../i18n';
-import {C, styles} from '../theme';
+import {styles} from '../theme';
 
 /** A searchable, accessible picker used for administrative location fields. */
 export function DropdownField({

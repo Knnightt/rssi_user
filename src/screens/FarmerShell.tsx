@@ -7,6 +7,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
 import {captureFarmCoordinates, FarmCoordinates, farmLocationSourceLabel} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
+import {FarmCoordinateFields} from '../components/FarmCoordinateFields';
 import {DropdownField} from '../components/DropdownField';
 import {ReportProgressTimeline} from '../components/ReportProgressTimeline';
 import negrosLocations from '../data/negrosLocations.json';
@@ -49,7 +50,7 @@ export default function FarmerShell(props: {
   const {t} = useLanguage();
   const {
     user, properties, reports, queue, community, tab, setTab,
-    networkConnected, serverReachable, busy, photoUploadProgress, notice, clearNotice, onMessage, token,
+    networkConnected, serverReachable, busy, photoUploadProgress, notice, clearNotice, onMessage, token, canGoBack, onBack,
   } = props;
   const [farmForm, setFarmForm] = useState(false);
   const [farmBusy, setFarmBusy] = useState(false);
@@ -122,14 +123,14 @@ export default function FarmerShell(props: {
         setSelectedReport(null);
         return true;
       }
-      if (tab !== 'home' || props.canGoBack) {
-        props.onBack();
+      if (tab !== 'home' || canGoBack) {
+        onBack();
         return true;
       }
       return false;
     });
     return () => subscription.remove();
-  }, [locationEditProperty, farmForm, profileEditing, selectedReport, tab, props.canGoBack, props.onBack]);
+  }, [locationEditProperty, farmForm, profileEditing, selectedReport, tab, canGoBack, onBack]);
 
   const selectedProperty = properties.find(property => property.id === selectedFarm) || properties[0];
   const refreshData = async () => {
@@ -529,13 +530,13 @@ export default function FarmerShell(props: {
           {farmLocationConsent ? <>
             <Text style={styles.helperText}>{t('Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.')}</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+            <FarmCoordinateFields value={farmCoordinates} onChange={setFarmCoordinates} />
             <Text style={styles.helperText}>{t('Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.')}</Text>
             <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
               setFarmLocationBusy(true);
               void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : t('Could not read location.'))).finally(() => setFarmLocationBusy(false));
             }} />
             {farmCoordinates ? <>
-              <Text style={styles.coordinatesText}>{t('Coordinates')}: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
               <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(farmCoordinates.source))}</Text>
               {farmCoordinates.source === 'gps' && farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
             </> : <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text>}
@@ -584,9 +585,9 @@ export default function FarmerShell(props: {
           {farmValues.barangay || farmCoordinates ? <>
           <Text style={styles.helperText}>Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+            <FarmCoordinateFields value={farmCoordinates} onChange={setFarmCoordinates} />
             {farmLocationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
             {farmCoordinates ? <>
-              <Text style={styles.coordinatesText}>{t('Coordinates')}: {farmCoordinates.latitude.toFixed(5)}, {farmCoordinates.longitude.toFixed(5)}</Text>
               <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(farmCoordinates.source))}</Text>
               {farmCoordinates.source === 'gps' && farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
             </> : !farmLocationBusy ? <Text style={styles.helperText}>Choose a point on the map or use current location.</Text> : null}

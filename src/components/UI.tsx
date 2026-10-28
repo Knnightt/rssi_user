@@ -43,7 +43,7 @@ export function Field(props: {
   placeholder?: string;
   secureTextEntry?: boolean;
   showPasswordToggle?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'decimal-pad' | 'numeric' | 'url';
+  keyboardType?: 'default' | 'email-address' | 'decimal-pad' | 'numeric' | 'numbers-and-punctuation' | 'url';
   multiline?: boolean;
   maxLength?: number;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';

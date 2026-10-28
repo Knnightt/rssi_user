@@ -904,6 +904,10 @@ export function createLightStyles(C: StylePalette) {
       marginBottom: 7,
     },
     coordinatesText: { fontSize: 10, color: C.muted, marginTop: 6 },
+    coordinateFields: { marginTop: 8 },
+    coordinateInputRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
+    coordinateInputCell: { flex: 1 },
+    coordinateError: { fontSize: 11, color: C.red, lineHeight: 16, marginTop: 5 },
     locationPickerFrame: {
       height: 260,
       borderRadius: 10,

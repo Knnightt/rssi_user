@@ -10,6 +10,10 @@ const languageStorageKey = 'rssi_app_language';
 
 const tagalog: Record<string, string> = {
   'Coordinates': 'Mga koordinado', 'Pin source': 'Pinagmulan ng pin', 'GPS accuracy': 'Katumpakan ng GPS',
+  'Enter GPS coordinates': 'Ilagay ang GPS coordinates', 'Latitude': 'Latitude', 'Longitude': 'Longitude',
+  'Use decimal degrees, then tap Set map pin. Latitude: -90 to 90; longitude: -180 to 180.': 'Gumamit ng decimal degrees at i-tap ang Itakda ang pin sa mapa. Latitude: -90 hanggang 90; longitude: -180 hanggang 180.',
+  'Set map pin': 'Itakda ang pin sa mapa', 'Enter both latitude and longitude as decimal numbers.': 'Ilagay ang latitude at longitude bilang decimal na numero.',
+  'Latitude must be between -90 and 90; longitude between -180 and 180.': 'Dapat nasa -90 hanggang 90 ang latitude at -180 hanggang 180 ang longitude.',
   'GPS fix': 'Nakuha mula sa GPS', 'Address lookup estimate': 'Tantiya mula sa paghahanap ng address',
   'Placed on map': 'Inilagay sa mapa', 'Boundary drawn on map': 'Hangganang iginuhit sa mapa', 'Origin not recorded': 'Hindi naitala ang pinagmulan',
   'Crop characteristics': 'Mga katangian ng pananim',
@@ -314,6 +318,10 @@ const tagalog: Record<string, string> = {
 
 const cebuano: Record<string, string> = {
   'Coordinates': 'Mga koordinado', 'Pin source': 'Gigikanan sa pin', 'GPS accuracy': 'Katukma sa GPS',
+  'Enter GPS coordinates': 'Ibutang ang GPS coordinates', 'Latitude': 'Latitude', 'Longitude': 'Longitude',
+  'Use decimal degrees, then tap Set map pin. Latitude: -90 to 90; longitude: -180 to 180.': 'Gamita ang decimal degrees, dayon i-tap ang Itakda ang pin sa mapa. Latitude: -90 hangtod 90; longitude: -180 hangtod 180.',
+  'Set map pin': 'Itakda ang pin sa mapa', 'Enter both latitude and longitude as decimal numbers.': 'Ibutang ang latitude ug longitude isip decimal nga mga numero.',
+  'Latitude must be between -90 and 90; longitude between -180 and 180.': 'Kinahanglan naa sa -90 hangtod 90 ang latitude ug -180 hangtod 180 ang longitude.',
   'GPS fix': 'Nakuha pinaagi sa GPS', 'Address lookup estimate': 'Banabana gikan sa pagpangita sa adres',
   'Placed on map': 'Gibutang sa mapa', 'Boundary drawn on map': 'Utlanan nga gidrowing sa mapa', 'Origin not recorded': 'Wala natala ang gigikanan',
   'Crop characteristics': 'Mga kinaiya sa tanom',

@@ -5,6 +5,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
 import {captureFarmCoordinates, farmLocationSourceLabel, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
+import {FarmCoordinateFields} from '../components/FarmCoordinateFields';
 import {DropdownField} from '../components/DropdownField';
 import negrosLocations from '../data/negrosLocations.json';
 import {styles} from '../theme';
@@ -12,7 +13,7 @@ import {RegisterFields} from '../types';
 import {BrandMark, Button, Choice, Field, LanguageSwitcher, LoadingScreen, Notice, Pill, ProfilePhotoPicker, ToggleLine} from '../components/UI';
 import {LocalizedText as Text, useLanguage} from '../i18n';
 import {useTheme} from '../theme';
-import {readSecure, removeSecure, writeSecure} from '../secureStorage';
+import {readSecure, writeSecure} from '../secureStorage';
 
 type SupportedProvince = keyof typeof negrosLocations;
 
@@ -417,9 +418,9 @@ export default function AuthScreen({
     <Text style={[styles.inputLabel, styles.locationPickerTitle]}>Choose your exact farm location</Text>
     <Notice text="Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin." tone="info" />
     <LocationPicker value={coordinates} onChange={moveMapPin} onGestureActive={setMapGestureActive} />
+    <FarmCoordinateFields value={coordinates} onChange={moveMapPin} />
     {coordinates ? <View style={styles.coordinatesWrap}>
       <Text style={styles.coordinatesText}>Selected farm pin</Text>
-      <Text style={styles.coordinatesText}>{coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}</Text>
       <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(coordinates.source))}</Text>
       {coordinates.source === 'gps' && coordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(coordinates.accuracy)} m</Text> : null}
     </View> : null}
