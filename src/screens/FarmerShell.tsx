@@ -1,11 +1,16 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {BackHandler, Image, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Share, Text as NativeText, TextInput, TouchableOpacity, View} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
 import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
+<<<<<<< HEAD
 import {captureFarmCoordinates, FarmBoundaryPoint, FarmCoordinates, farmLocationSourceLabel} from '../location';
+=======
+import {captureFarmCoordinates, FarmCoordinates} from '../location';
+>>>>>>> 0f32d7920b4a39294cbfa095bd4eb763bdbb25db
 import {LocationPicker} from '../components/LocationPicker';
 import {FarmCoordinateFields} from '../components/FarmCoordinateFields';
 import {DropdownField} from '../components/DropdownField';
@@ -44,7 +49,6 @@ export default function FarmerShell(props: {
   onSignOut: () => Promise<void>;
   onUpdateFarmerName: (name: string) => Promise<void>;
   onProfilePhotoUpdated: (profilePhotoUrl: string | null) => Promise<void>;
-  onCommunityConfirmed: (id: number) => Promise<void>;
 }) {
   useTheme();
   const {t} = useLanguage();
@@ -86,6 +90,50 @@ export default function FarmerShell(props: {
   const [profilePhoto, setProfilePhoto] = useState<Asset | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
+  const [communityLikes, setCommunityLikes] = useState<Record<string, true>>({});
+  const [communityLikesLoaded, setCommunityLikesLoaded] = useState(false);
+  const communityLikesRef = useRef<Record<string, true>>({});
+
+  useEffect(() => {
+    let active = true;
+    setCommunityLikesLoaded(false);
+    communityLikesRef.current = {};
+    setCommunityLikes({});
+    const storageKey = `rssi_community_likes_${user.id}`;
+    void AsyncStorage.getItem(storageKey).then(raw => {
+      let saved: Record<string, true> = {};
+      if (raw) {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            saved = Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === true)) as Record<string, true>;
+          }
+        } catch {
+          // Ignore a damaged local cache and start with no liked reports.
+        }
+      }
+      if (active) {
+        communityLikesRef.current = saved;
+        setCommunityLikes(saved);
+        setCommunityLikesLoaded(true);
+      }
+    }).catch(() => {
+      if (active) setCommunityLikesLoaded(true);
+    });
+    return () => { active = false; };
+  }, [user.id]);
+
+  const toggleCommunityLike = (reportId: number) => {
+    const key = String(reportId);
+    const next = {...communityLikesRef.current};
+    if (next[key]) delete next[key];
+    else next[key] = true;
+    communityLikesRef.current = next;
+    setCommunityLikes(next);
+    void AsyncStorage.setItem(`rssi_community_likes_${user.id}`, JSON.stringify(next)).catch(() => {
+      onMessage(t('Could not save your like on this device.'));
+    });
+  };
 
   useEffect(() => {
     if (!selectedReport) return;
@@ -533,17 +581,18 @@ export default function FarmerShell(props: {
   const createFarmForm = () => (
     <Card>
       <Text style={styles.cardTitle}>{locationEditProperty ? t('Update farm location') : farmForm ? t('Add a farm') : t('Your farms')}</Text>
-      <Text style={styles.cardSub}>{locationEditProperty ? locationEditProperty.name : farmForm ? t('Add a farm you own or manage. Exact coordinates are not required.') : t('Only farms in your account are shown here.')}</Text>
+      {locationEditProperty || farmForm ? <Text style={styles.cardSub}>{locationEditProperty ? locationEditProperty.name : t('Add a farm you own or manage. Exact coordinates are not required.')}</Text> : null}
       {farmMessage ? <Notice text={farmMessage} tone={farmMessage.includes('added') || farmMessage.includes('updated') || farmMessage.includes('removed') ? 'success' : 'error'} /> : null}
       {locationEditProperty ? (
         <>
           <ToggleLine
             title={t('Show this farm in SRA Map Monitoring')}
-            description={t('Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.')}
+            description=""
             value={farmLocationConsent}
             onValueChange={value => {setFarmLocationConsent(value); if (!value) {setFarmCoordinates(null); setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}}}
           />
           {farmLocationConsent ? <>
+<<<<<<< HEAD
             <Text style={styles.helperText}>{t('Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.')}</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} boundary={farmBoundaryCoordinates} boundaryDrawing={farmBoundaryDrawing} onBoundaryChange={setFarmBoundaryCoordinates} onGestureActive={setFarmMapGestureActive} />
             <Text style={styles.helperText}>{t('Draw the farm outline by tapping each corner in order. Use at least three corners; the saved polygon marks the actual farm area in SRA Map Monitoring.')}</Text>
@@ -553,14 +602,15 @@ export default function FarmerShell(props: {
               <Button label={t('Clear boundary')} kind="light" disabled={!farmBoundaryCoordinates.length} onPress={() => {setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}} />
             </View>
             <Text style={styles.helperText}>{farmBoundaryCoordinates.length} {t('boundary corners')}</Text>
+=======
+            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+>>>>>>> 0f32d7920b4a39294cbfa095bd4eb763bdbb25db
             <FarmCoordinateFields value={farmCoordinates} onChange={setFarmCoordinates} />
-            <Text style={styles.helperText}>{t('Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.')}</Text>
             <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
               setFarmLocationBusy(true);
               void captureFarmCoordinates().then(setFarmCoordinates).catch(error => setFarmMessage(error instanceof Error ? error.message : t('Could not read location.'))).finally(() => setFarmLocationBusy(false));
             }} />
             {farmCoordinates ? <>
-              <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(farmCoordinates.source))}</Text>
               {farmCoordinates.source === 'gps' && farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
             </> : <Text style={styles.helperText}>{t('Choose a point on the map or use current location before saving consent.')}</Text>}
           </> : <Text style={styles.helperText}>{t('Save this change to remove the exact pin from SRA Map Monitoring.')}</Text>}
@@ -601,11 +651,12 @@ export default function FarmerShell(props: {
           <Text style={styles.helperText}>{t('The saved boundary draws the actual farm area. If you do not draw a boundary, the map uses this area as an approximate circle.')}</Text>
           <ToggleLine
             title={t('Show this farm in SRA Map Monitoring')}
-            description={t('Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.')}
+            description=""
             value={farmLocationConsent}
             onValueChange={value => {setFarmLocationConsent(value); if (!value) {setFarmCoordinates(null); setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}}}
           />
           {farmValues.barangay || farmCoordinates ? <>
+<<<<<<< HEAD
           <Text style={styles.helperText}>Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.</Text>
             <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} boundary={farmBoundaryCoordinates} boundaryDrawing={farmBoundaryDrawing} onBoundaryChange={setFarmBoundaryCoordinates} onGestureActive={setFarmMapGestureActive} />
             {farmLocationConsent ? <>
@@ -617,10 +668,12 @@ export default function FarmerShell(props: {
               </View>
               <Text style={styles.helperText}>{farmBoundaryCoordinates.length} {t('boundary corners')}</Text>
             </> : <Text style={styles.helperText}>{t('Enable map sharing above to draw and save an exact farm boundary.')}</Text>}
+=======
+            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+>>>>>>> 0f32d7920b4a39294cbfa095bd4eb763bdbb25db
             <FarmCoordinateFields value={farmCoordinates} onChange={setFarmCoordinates} />
             {farmLocationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
             {farmCoordinates ? <>
-              <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(farmCoordinates.source))}</Text>
               {farmCoordinates.source === 'gps' && farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
             </> : !farmLocationBusy ? <Text style={styles.helperText}>Choose a point on the map or use current location.</Text> : null}
             {farmBoundaryCoordinates.length >= 3 ? <Text style={styles.helperText}>{t('Farm area will be calculated from the drawn boundary when saved.')}</Text> : null}
@@ -686,29 +739,27 @@ export default function FarmerShell(props: {
       case 'home':
         return (
           <>
-            <PageIntro eyebrow="RSSI FARMER MONITORING" title="Dashboard" subtitle={`Welcome back, ${user.name.split(' ')[0]}. Track your farms and field observations.`} />
+            <PageIntro eyebrow="RSSI FARMER MONITORING" title="Dashboard" />
             <TouchableOpacity style={styles.profileShortcut} onPress={() => setTab('profile')} accessibilityRole="button">
               <View style={styles.profileShortcutIcon}><Avatar name={user.name} photoUrl={user.profile_photo_url} photoCacheKey={user.profile_photo_cache_key} token={token} size={38} /></View>
-              <View style={styles.flex}><Text style={styles.profileShortcutTitle}>My profile</Text><Text style={styles.profileShortcutSub}>View and edit your account information</Text></View>
+              <View style={styles.flex}><Text style={styles.profileShortcutTitle}>My profile</Text></View>
               <Text style={styles.quickArrow}>›</Text>
             </TouchableOpacity>
             <Card>
               <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Coverage overview</Text><TouchableOpacity onPress={() => setTab('farms')}><Text style={styles.linkText}>My farms</Text></TouchableOpacity></View>
-              <Text style={styles.cardSub}>Farm records linked to your account.</Text>
               {['Negros Oriental', 'Negros Occidental'].map(province => (
                 <View key={province} style={styles.coverageRow}><Text style={styles.coverageArea}>{province}</Text><Pill text={`${farmsByProvince[province] || 0} farms`} tone="green" /></View>
               ))}
               <View style={styles.coverageRow}><Text style={styles.coverageArea}>Total monitored</Text><Pill text={`${properties.length} farms`} tone="blue" /></View>
             </Card>
             <Card>
-              <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Crop damage severity</Text><Text style={styles.sectionHint}>Farmer estimate</Text></View>
+              <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Crop damage severity</Text></View>
               <View style={styles.severityLegend}>
                 <View style={[styles.severityLegendItem, styles.severityMild]}><Text style={styles.severityLegendName}>Mild</Text><Text style={styles.severityLegendRange}>1–20% damage</Text></View>
                 <View style={[styles.severityLegendItem, styles.severityModerate]}><Text style={styles.severityLegendName}>Moderate</Text><Text style={styles.severityLegendRange}>21–50% damage</Text></View>
                 <View style={[styles.severityLegendItem, styles.severitySevere]}><Text style={styles.severityLegendName}>Severe</Text><Text style={styles.severityLegendRange}>51–70% damage</Text></View>
                 <View style={[styles.severityLegendItem, styles.severityCritical]}><Text style={styles.severityLegendName}>Highly severe</Text><Text style={styles.severityLegendRange}>71–100% damage</Text></View>
               </View>
-              <Text style={styles.helperText}>Severity reflects your observation. SRA review is recorded separately.</Text>
             </Card>
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>My latest report</Text>
@@ -724,13 +775,12 @@ export default function FarmerShell(props: {
                 </>
               )}
             </Card>
-            <PrivacyNote text="A farmer report is an observation for SRA review. It is not a confirmed RSSI finding." />
           </>
         );
       case 'farms':
         return (
           <>
-            <PageIntro eyebrow="YOUR FARMS" title="Your farms" subtitle="Manage your farms and add another farm to your account." />
+            <PageIntro eyebrow="YOUR FARMS" title="Your farms" />
             {createFarmForm()}
             <Card>
               <Text style={styles.cardTitle}>Location privacy</Text>
@@ -867,7 +917,7 @@ export default function FarmerShell(props: {
         }
         return (
           <>
-            <PageIntro eyebrow="REPORT HISTORY" title="My submitted reports" subtitle="Filter your observations, view their review status, or export a CSV summary." action={<TouchableOpacity onPress={() => void props.onRefresh()} disabled={!networkConnected}><Text style={[styles.linkText, !networkConnected && styles.disabledText]}>Refresh</Text></TouchableOpacity>} />
+            <PageIntro eyebrow="REPORT HISTORY" title="My submitted reports" action={<TouchableOpacity onPress={() => void props.onRefresh()} disabled={!networkConnected}><Text style={[styles.linkText, !networkConnected && styles.disabledText]}>Refresh</Text></TouchableOpacity>} />
             <View style={styles.filterChipRow}>
               {['All', 'Pending', 'Reviewed', 'Severe'].map(value => (
                 <TouchableOpacity key={value} style={[styles.filterChip, historyFilter === value && styles.filterChipActive]} onPress={() => setHistoryFilter(value)}>
@@ -877,7 +927,7 @@ export default function FarmerShell(props: {
             </View>
             <Card>
               <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Active filters</Text><Text style={styles.sectionHint}>{historyFilter === 'All' ? 'All statuses' : historyFilter}</Text></View>
-              <Text style={styles.cardSub}>{historyFilter === 'Pending' ? 'Reports awaiting SRA review.' : historyFilter === 'Reviewed' ? 'Reports with a recorded SRA review.' : historyFilter === 'Severe' ? 'Reports you marked severe or highly severe.' : 'All reports from your account.'}</Text>
+              {historyFilter !== 'All' ? <Text style={styles.cardSub}>{historyFilter === 'Pending' ? 'Reports awaiting SRA review.' : historyFilter === 'Reviewed' ? 'Reports with a recorded SRA review.' : 'Reports you marked severe or highly severe.'}</Text> : null}
               <View style={styles.buttonRow}><View style={styles.flex}><Button label="Change filters" kind="blue" onPress={() => setHistoryFilter('All')} /></View><View style={styles.flex}><Button label="Export CSV" kind="light" onPress={() => void exportReports()} /></View></View>
             </Card>
             <TextInput value={reportSearch} onChangeText={setReportSearch} placeholder={t('Search reports, farms, or municipalities')} placeholderTextColor="#98A5B8" style={styles.input} accessibilityLabel={t('Search reports')} returnKeyType="search" />
@@ -897,13 +947,12 @@ export default function FarmerShell(props: {
               ) : filteredReports.length === 0 ? <EmptyState icon="⌕" title="No reports match these filters" description="Change the status filter or search for another report." /> : filteredReports.map(report => <ReportRow key={report.id} report={report} onPress={() => setSelectedReport(report)} />)}
             </Card>
             <Button label="Export CSV" kind="blue" onPress={() => void exportReports()} />
-            <PrivacyNote text="Report status and severity are separate. A farmer’s estimate is not an SRA diagnosis." />
           </>
         );
       case 'community':
         return (
           <>
-            <PageIntro eyebrow="SRA FARMER NETWORK" title="Field updates" subtitle="Community observations are shared only with the farmer’s consent and exclude personal details." />
+            <PageIntro eyebrow="SRA FARMER NETWORK" title="Field updates" />
             <View style={styles.filterChipRow}>
               <TouchableOpacity style={[styles.filterChip, styles.filterChipActive]}><Text style={[styles.filterChipText, styles.filterChipTextActive]}>Field updates</Text></TouchableOpacity>
               <TouchableOpacity style={styles.filterChip} onPress={() => setTab('history')}><Text style={styles.filterChipText}>My reports</Text></TouchableOpacity>
@@ -914,21 +963,26 @@ export default function FarmerShell(props: {
             ) : (
               <Card>
                 <View style={styles.cardTitleRow}><Text style={styles.cardTitle}>Shared observations</Text><TouchableOpacity onPress={() => void props.onLoadCommunity()}><Text style={styles.linkText}>Reload</Text></TouchableOpacity></View>
-                <Text style={styles.cardSub}>Only posts that farmers chose to share appear here. Identity and exact farm details are removed.</Text>
                 {community.length === 0 ? (
                   <EmptyState icon="◎" title="No shared updates yet" description="When a farmer opts in to share an observation, it will appear here." />
                 ) : community.map(item => (
-                  <CommunityCard key={item.id} item={item} token={props.token} onConfirm={() => void props.onCommunityConfirmed(item.id)} disabled={!networkConnected || item.confirmed_by_me} />
+                  <CommunityCard
+                    key={item.id}
+                    item={item}
+                    token={props.token}
+                    liked={Boolean(communityLikes[String(item.id)])}
+                    likesReady={communityLikesLoaded}
+                    onToggleLike={() => toggleCommunityLike(item.id)}
+                  />
                 ))}
               </Card>
             )}
-            <PrivacyNote text="A community response is not a pest confirmation. Only authorized SRA staff can verify a report." />
           </>
         );
       case 'profile':
         return (
           <>
-            <PageIntro eyebrow="ACCOUNT & PRIVACY" title="My profile" subtitle="Update your account information and default farm details." />
+            <PageIntro eyebrow="ACCOUNT & PRIVACY" title="My profile" />
             <Card>
               <Text style={styles.cardTitle}>Personal information</Text>
               <View style={[styles.profileHeader, styles.profileHeaderSpaced]}><Avatar name={user.name} photoUrl={user.profile_photo_url} photoCacheKey={user.profile_photo_cache_key} token={token} /><View style={styles.flex}><Text style={styles.profileName}>{user.name}</Text><Text style={styles.cardSub}>{user.email}</Text></View></View>
@@ -963,8 +1017,6 @@ export default function FarmerShell(props: {
             </Card>
             <Card>
               <Text style={styles.cardTitle}>Data stored for offline use</Text>
-              <Text style={styles.bodyText}>Your account session, saved farm details, last report list and unsent reports are stored in your device’s protected credential store. Unsent items sync when RSSI is reachable.</Text>
-              <Text style={[styles.bodyText, styles.bodyTextSpaced]}>Community updates are not cached and cannot be opened offline.</Text>
             </Card>
             {notice ? <Notice text={notice} tone="info" /> : null}
             <Button label="Help & support" kind="light" onPress={() => setTab('support')} />
@@ -1008,7 +1060,7 @@ export default function FarmerShell(props: {
       ) : null}
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       {notice ? (
-        <TouchableOpacity style={styles.noticeWrap} onPress={clearNotice}><Notice text={notice} tone="info" /><Text style={styles.dismissText}>Tap to dismiss</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.noticeWrap} onPress={clearNotice}><Notice text={notice} tone="info" /></TouchableOpacity>
       ) : null}
       <ScrollView
         style={styles.flex}
