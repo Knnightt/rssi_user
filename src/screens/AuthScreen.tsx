@@ -3,7 +3,7 @@ import {BackHandler, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacit
 import {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {ApiError, apiRequest, AuthResponse, geocodeFarmAddress, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
-import {captureFarmCoordinates, farmLocationSourceLabel, FarmCoordinates} from '../location';
+import {captureFarmCoordinates, farmLocationSourceLabel, FarmBoundaryPoint, FarmCoordinates} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {FarmCoordinateFields} from '../components/FarmCoordinateFields';
 import {DropdownField} from '../components/DropdownField';
@@ -79,8 +79,24 @@ export default function AuthScreen({
   const [profilePhoto, setProfilePhoto] = useState<Asset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialMessage);
+  const [resetStage, setResetStage] = useState<'request' | 'confirm' | null>(null);
+  const [resetUsername, setResetUsername] = useState('');
+  const [resetPhoneNumber, setResetPhoneNumber] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState(false);
+  const [registrationPolicyLoading, setRegistrationPolicyLoading] = useState(false);
+  const [phoneVerificationRequired, setPhoneVerificationRequired] = useState(false);
+  const [signupPhoneCodeSent, setSignupPhoneCodeSent] = useState(false);
+  const [signupPhoneCode, setSignupPhoneCode] = useState('');
+  const [signupPhoneVerificationToken, setSignupPhoneVerificationToken] = useState('');
+  const [signupPhoneMessage, setSignupPhoneMessage] = useState('');
   const [preciseLocationConsent, setPreciseLocationConsent] = useState(false);
   const [coordinates, setCoordinates] = useState<FarmCoordinates | null>(null);
+  const [boundaryCoordinates, setBoundaryCoordinates] = useState<FarmBoundaryPoint[]>([]);
+  const [boundaryDrawing, setBoundaryDrawing] = useState(false);
   const [mapGestureActive, setMapGestureActive] = useState(false);
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
@@ -99,8 +115,31 @@ export default function AuthScreen({
     return () => { mounted = false; };
   }, []);
 
+  useEffect(() => {
+    if (!isRegistering) return;
+    let mounted = true;
+    setRegistrationPolicyLoading(true);
+    void apiRequest<{phone_verification_required: boolean}>('/auth/registration-policy')
+      .then(policy => {
+        if (mounted) setPhoneVerificationRequired(policy.phone_verification_required === true);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (mounted) setRegistrationPolicyLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [isRegistering]);
+
   const setField = (key: keyof RegisterFields, value: string) => {
     setFields(current => ({...current, [key]: value}));
+  };
+
+  const changeRegistrationPhone = (phoneNumber: string) => {
+    setField('phoneNumber', phoneNumber);
+    setSignupPhoneCodeSent(false);
+    setSignupPhoneCode('');
+    setSignupPhoneVerificationToken('');
+    setSignupPhoneMessage('');
   };
 
   const captureLocation = async () => {
@@ -193,6 +232,8 @@ export default function AuthScreen({
     geocodedAddressKey.current = '';
     setField('address', address);
     setCoordinates(null);
+    setBoundaryCoordinates([]);
+    setBoundaryDrawing(false);
     setAddressLookupBusy(false);
     setLocationBusy(false);
     setAddressLookupMessage('');
@@ -208,6 +249,8 @@ export default function AuthScreen({
     geocodedAddressKey.current = '';
     setFields(current => ({...current, province, municipality: '', barangay: ''}));
     setCoordinates(null);
+    setBoundaryCoordinates([]);
+    setBoundaryDrawing(false);
     setLocationMessage('');
     setAddressLookupMessage('');
     setAddressLookupBusy(false);
@@ -220,6 +263,8 @@ export default function AuthScreen({
     geocodedAddressKey.current = '';
     setFields(current => ({...current, municipality, barangay: ''}));
     setCoordinates(null);
+    setBoundaryCoordinates([]);
+    setBoundaryDrawing(false);
     setLocationMessage('');
     setAddressLookupMessage('');
     setAddressLookupBusy(false);
@@ -234,6 +279,8 @@ export default function AuthScreen({
     setAddressLookupMessage('');
     setField('barangay', barangay);
     setCoordinates(null);
+    setBoundaryCoordinates([]);
+    setBoundaryDrawing(false);
     setLocationBusy(true);
     setLocationMessage('Finding this barangay on the map…');
     try {
@@ -294,8 +341,8 @@ export default function AuthScreen({
           setError('Complete the farm name, province, municipality, barangay, address and area, or choose to add the farm later.');
           return;
         }
-        if (preciseLocationConsent && !coordinates) {
-          setError('Choose a point on the map or use current location before saving consent.');
+        if (preciseLocationConsent && !coordinates && boundaryCoordinates.length < 3) {
+          setError('Choose a point on the map or draw at least three boundary corners before sharing the exact location.');
           return;
         }
       }
@@ -318,6 +365,19 @@ export default function AuthScreen({
     setError('');
     onMessage('');
     try {
+      let verificationRequired = false;
+      try {
+        const policy = await apiRequest<{phone_verification_required: boolean}>('/auth/registration-policy');
+        verificationRequired = policy.phone_verification_required === true;
+      } catch {
+        // The registration endpoint remains authoritative if the policy request is unavailable.
+      }
+      setPhoneVerificationRequired(verificationRequired);
+      if (verificationRequired && !signupPhoneVerificationToken) {
+        setError('Verify your phone number before creating the account.');
+        return;
+      }
+
       const body: Record<string, unknown> = {
         name: fields.name.trim(),
         username: fields.username.trim().toLowerCase(),
@@ -325,6 +385,7 @@ export default function AuthScreen({
         password: fields.password,
         email,
       };
+      if (signupPhoneVerificationToken) body.phoneVerificationToken = signupPhoneVerificationToken;
       if (addFarm) {
         Object.assign(body, {
           propertyName: fields.propertyName.trim(),
@@ -335,8 +396,9 @@ export default function AuthScreen({
           sizeHectares: Number(fields.sizeHectares),
           latitude: preciseLocationConsent ? coordinates?.latitude ?? null : null,
           longitude: preciseLocationConsent ? coordinates?.longitude ?? null : null,
-          locationSource: preciseLocationConsent && coordinates ? coordinates.source || 'unknown' : 'unknown',
-          gpsAccuracyMeters: preciseLocationConsent && coordinates?.source === 'gps' ? coordinates.accuracy ?? null : null,
+          boundaryCoordinates: preciseLocationConsent ? boundaryCoordinates : [],
+          locationSource: preciseLocationConsent && boundaryCoordinates.length >= 3 ? 'boundary' : preciseLocationConsent && coordinates ? coordinates.source || 'unknown' : 'unknown',
+          gpsAccuracyMeters: preciseLocationConsent && boundaryCoordinates.length < 3 && coordinates?.source === 'gps' ? coordinates.accuracy ?? null : null,
           locationConsent: preciseLocationConsent,
         });
       }
@@ -357,6 +419,14 @@ export default function AuthScreen({
       await onAuthenticated(response);
       if (photoUploadFailed) onMessage('Your account was created, but the profile picture was not uploaded. You can add it later in My profile.');
     } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.code === 'phone_verification_required') {
+        setPhoneVerificationRequired(true);
+        setSignupPhoneVerificationToken('');
+        setSignupPhoneCodeSent(false);
+        setSignupPhoneMessage('The workspace now requires phone verification. Send a code to continue.');
+        setError('Verify your phone number before creating the account.');
+        return;
+      }
       setError(requestError instanceof Error ? requestError.message : 'Could not create the account right now.');
     } finally {
       setBusy(false);
@@ -381,6 +451,132 @@ export default function AuthScreen({
       await onAuthenticated(response);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not sign in right now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestSignupPhoneCode = async () => {
+    if (!fields.phoneNumber.trim()) {
+      setError('Enter your phone number first.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setSignupPhoneMessage('');
+    try {
+      const response = await apiRequest<{message: string}>('/auth/phone-verification/request', undefined, {
+        method: 'POST',
+        body: JSON.stringify({phoneNumber: fields.phoneNumber.trim()}),
+      });
+      setSignupPhoneCodeSent(true);
+      setSignupPhoneCode('');
+      setSignupPhoneVerificationToken('');
+      setSignupPhoneMessage(response.message);
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.code === 'phone_verification_disabled') {
+        setPhoneVerificationRequired(false);
+        setSignupPhoneCodeSent(false);
+      }
+      setError(requestError instanceof Error ? requestError.message : 'Could not send a verification SMS right now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmSignupPhoneCode = async () => {
+    if (!/^\d{6}$/.test(signupPhoneCode.trim())) {
+      setError('Enter the 6-digit code from the SMS.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiRequest<{phone_verification_token: string}>('/auth/phone-verification/confirm', undefined, {
+        method: 'POST',
+        body: JSON.stringify({phoneNumber: fields.phoneNumber.trim(), code: signupPhoneCode.trim()}),
+      });
+      setSignupPhoneVerificationToken(response.phone_verification_token);
+      setSignupPhoneMessage('Phone number verified. You can create your account.');
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.code === 'phone_verification_disabled') {
+        setPhoneVerificationRequired(false);
+        setSignupPhoneCodeSent(false);
+        setSignupPhoneVerificationToken('');
+      }
+      setError(requestError instanceof Error ? requestError.message : 'Could not verify this phone number.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openPasswordReset = () => {
+    setResetUsername(loginUsername);
+    setResetStage('request');
+    setResetMessage('');
+    setPasswordResetSuccess(false);
+    setError('');
+  };
+
+  const requestPasswordReset = async () => {
+    if (!resetUsername.trim() || !resetPhoneNumber.trim()) {
+      setError('Enter your username and the phone number on your account.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setResetMessage('');
+    try {
+      await apiRequest<{message: string}>('/auth/password-reset/request', undefined, {
+        method: 'POST',
+        body: JSON.stringify({username: resetUsername.trim().toLowerCase(), phoneNumber: resetPhoneNumber.trim()}),
+      });
+      setResetUsername(value => value.trim().toLowerCase());
+      setResetStage('confirm');
+      setResetMessage('If the account details match, a verification code has been sent.');
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not request a reset code right now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmPasswordReset = async () => {
+    if (!/^\d{6}$/.test(resetCode.trim())) {
+      setError('Enter the 6-digit code from the SMS.');
+      return;
+    }
+    if (resetPassword.length < 10) {
+      setError('Choose a password with at least 10 characters.');
+      return;
+    }
+    if (resetPassword !== resetConfirmPassword) {
+      setError('The passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await apiRequest<{message: string}>('/auth/password-reset/confirm', undefined, {
+        method: 'POST',
+        body: JSON.stringify({
+          username: resetUsername.trim().toLowerCase(),
+          phoneNumber: resetPhoneNumber.trim(),
+          code: resetCode.trim(),
+          newPassword: resetPassword,
+          confirmPassword: resetConfirmPassword,
+        }),
+      });
+      setLoginUsername(resetUsername.trim().toLowerCase());
+      setPassword('');
+      setResetStage(null);
+      setResetCode('');
+      setResetPassword('');
+      setResetConfirmPassword('');
+      setResetMessage('');
+      setPasswordResetSuccess(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not reset the password right now.');
     } finally {
       setBusy(false);
     }
@@ -417,7 +613,7 @@ export default function AuthScreen({
     {addressLookupMessage ? <Text style={styles.helperText}>{addressLookupMessage}</Text> : null}
     <Text style={[styles.inputLabel, styles.locationPickerTitle]}>Choose your exact farm location</Text>
     <Notice text="Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin." tone="info" />
-    <LocationPicker value={coordinates} onChange={moveMapPin} onGestureActive={setMapGestureActive} />
+    <LocationPicker value={coordinates} onChange={moveMapPin} boundary={boundaryCoordinates} boundaryDrawing={boundaryDrawing} onBoundaryChange={setBoundaryCoordinates} onGestureActive={setMapGestureActive} />
     <FarmCoordinateFields value={coordinates} onChange={moveMapPin} />
     {coordinates ? <View style={styles.coordinatesWrap}>
       <Text style={styles.coordinatesText}>Selected farm pin</Text>
@@ -427,14 +623,24 @@ export default function AuthScreen({
     <Text style={styles.helperText}>{t('Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.')}</Text>
     <ToggleLine
       title="Show this farm in SRA Map Monitoring"
-      description="Save a pin for authorized SRA staff only. Leave this off to keep the exact location private."
+      description="Share this farm's exact pin or drawn outline with authorized SRA staff only. Leave this off to keep exact coordinates private."
       value={preciseLocationConsent}
-      onValueChange={setPreciseLocationConsent}
+      onValueChange={value => {setPreciseLocationConsent(value); if (!value) {setCoordinates(null); setBoundaryCoordinates([]); setBoundaryDrawing(false);}}}
     />
-    {preciseLocationConsent && !coordinates ? <Text style={styles.helperText}>Choose a point on the map or use current location before saving consent.</Text> : null}
+    {preciseLocationConsent ? <>
+      <Text style={styles.helperText}>Tap the farm corners in order to outline its actual area. At least three corners are needed.</Text>
+      <View style={styles.buttonRow}>
+        <Button label={boundaryDrawing ? t('Finish boundary') : t('Draw farm boundary')} kind="light" onPress={() => setBoundaryDrawing(active => !active)} />
+        <Button label={t('Undo corner')} kind="light" disabled={!boundaryCoordinates.length} onPress={() => setBoundaryCoordinates(points => points.slice(0, -1))} />
+        <Button label={t('Clear boundary')} kind="light" disabled={!boundaryCoordinates.length} onPress={() => {setBoundaryCoordinates([]); setBoundaryDrawing(false);}} />
+      </View>
+      <Text style={styles.helperText}>{boundaryCoordinates.length} {t('boundary corners')}</Text>
+      {boundaryCoordinates.length >= 3 ? <Text style={styles.helperText}>Farm area will be calculated from the outline when saved.</Text> : !coordinates ? <Text style={styles.helperText}>Choose a pin or draw at least three corners before continuing.</Text> : null}
+    </> : <Text style={styles.helperText}>Enable map sharing above to draw and save an exact farm boundary.</Text>}
   </>;
 
   const registrationSteps = ['Your name', 'Login details', 'Farm registration', 'Profile information'];
+  const isResetting = resetStage !== null;
   const goBackStep = () => {
     if (registerStep > 0) {
       setRegisterStep(value => value - 1);
@@ -450,11 +656,27 @@ export default function AuthScreen({
     }
   };
 
+  const handleAuthBack = () => {
+    if (resetStage === 'confirm') {
+      setResetStage('request');
+      setResetMessage('');
+    } else if (resetStage === 'request') {
+      setResetStage(null);
+    } else {
+      handleRegistrationBack();
+    }
+    setError('');
+  };
+
   useEffect(() => {
-    if (!isRegistering) return;
+    if (!isRegistering && !isResetting) return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (registerStep > 0) {
+      if (isResetting && resetStage === 'confirm') {
+        setResetStage('request');
+      } else if (isRegistering && registerStep > 0) {
         setRegisterStep(step => step - 1);
+      } else if (isResetting) {
+        setResetStage(null);
       } else {
         setMode('login');
       }
@@ -462,14 +684,14 @@ export default function AuthScreen({
       return true;
     });
     return () => subscription.remove();
-  }, [isRegistering, registerStep]);
+  }, [isRegistering, isResetting, registerStep, resetStage]);
 
   return (
     <SafeAreaView style={styles.authRoot}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" scrollEnabled={!mapGestureActive}>
           <View style={styles.authBrandRow}>
-            {isRegistering ? <TouchableOpacity style={styles.authBackButton} onPress={handleRegistrationBack} accessibilityRole="button" accessibilityLabel="Back" hitSlop={6}>
+            {isRegistering || isResetting ? <TouchableOpacity style={styles.authBackButton} onPress={handleAuthBack} accessibilityRole="button" accessibilityLabel="Back" hitSlop={6}>
               <Text style={styles.authBackText}>‹</Text>
             </TouchableOpacity> : null}
             <BrandMark large />
@@ -482,12 +704,15 @@ export default function AuthScreen({
           <View style={styles.authCard}><LanguageSwitcher /></View>
           <View style={styles.authCard}>
             <View style={styles.eyebrow}><Text style={styles.eyebrowText}>FARMER ACCOUNT</Text></View>
-            <Text style={styles.authTitle}>{isRegistering ? registrationSteps[registerStep] : 'Welcome back'}</Text>
+            <Text style={styles.authTitle}>{isRegistering ? registrationSteps[registerStep] : isResetting ? 'Reset password' : 'Welcome back'}</Text>
             <Text style={styles.authSub}>
               {isRegistering
                 ? 'Create your RSSI farmer account in a few quick steps.'
-                : 'Sign in to view your farms and report sugarcane observations.'}
+                : isResetting
+                  ? 'Verify your account phone number, then choose a new password.'
+                  : 'Sign in to view your farms and report sugarcane observations.'}
             </Text>
+            {passwordResetSuccess && !isResetting ? <Notice text="Password updated. Sign in with your new password." tone="success" /> : null}
             {error ? <Notice text={error} tone="error" /> : null}
             {isRegistering ? <>
               <View style={styles.authStepBadge}><Pill text={`STEP ${registerStep + 1} OF 4`} tone="blue" /><Text style={styles.helperText}>{registrationSteps[registerStep]}</Text></View>
@@ -512,22 +737,49 @@ export default function AuthScreen({
               {registerStep === 3 ? <>
                 <Field label="Email address *" value={fields.email} onChangeText={value => setField('email', value)} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
                 <Text style={styles.helperText}>Your email is saved as account contact information. Sign-in always uses your username.</Text>
-                <Field label="Phone number *" value={fields.phoneNumber} onChangeText={value => setField('phoneNumber', value)} placeholder="09XX XXX XXXX" keyboardType="numeric" autoCapitalize="none" autoCorrect={false} />
+                <Field label="Phone number *" value={fields.phoneNumber} onChangeText={changeRegistrationPhone} placeholder="09XX XXX XXXX" keyboardType="numeric" autoCapitalize="none" autoCorrect={false} />
+                {phoneVerificationRequired ? <View>
+                  {signupPhoneVerificationToken ? <Notice text={signupPhoneMessage || 'Phone number verified.'} tone="success" /> : <>
+                    <Text style={styles.helperText}>This workspace requires SMS verification before registration. The code expires after 10 minutes.</Text>
+                    <Button label={signupPhoneCodeSent ? 'Resend verification code' : 'Send verification code'} kind="light" onPress={() => void requestSignupPhoneCode()} disabled={busy || registrationPolicyLoading} loading={busy} />
+                    {signupPhoneCodeSent ? <>
+                      <Field label="6-digit verification code" value={signupPhoneCode} onChangeText={value => setSignupPhoneCode(value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" keyboardType="numeric" maxLength={6} autoCapitalize="none" autoCorrect={false} />
+                      <Button label={busy ? 'Verifying…' : 'Verify phone number'} kind="light" onPress={() => void confirmSignupPhoneCode()} disabled={busy} loading={busy} />
+                    </> : null}
+                  </>}
+                  {signupPhoneMessage && !signupPhoneVerificationToken ? <Notice text={signupPhoneMessage} tone="info" /> : null}
+                </View> : null}
                 <ProfilePhotoPicker name={fields.name} selectedPhoto={profilePhoto} onSelect={setProfilePhoto} disabled={busy} />
                 <Text style={styles.helperText}>When you create your account, RSSI will sign you in automatically.</Text>
               </> : null}
               <View style={styles.buttonRow}>
                 {registerStep > 0 ? <View style={styles.flex}><Button label="Back" kind="light" onPress={goBackStep} disabled={busy} /></View> : null}
-                <View style={styles.flex}><Button label={busy ? 'Creating account…' : registerStep === 3 ? 'Create account' : 'Next'} onPress={() => registerStep === 3 ? void finishRegistration() : continueRegistration()} disabled={busy || addressLookupBusy} loading={busy || addressLookupBusy} /></View>
+                <View style={styles.flex}><Button label={busy ? 'Creating account…' : registerStep === 3 ? 'Create account' : 'Next'} onPress={() => registerStep === 3 ? void finishRegistration() : continueRegistration()} disabled={busy || addressLookupBusy || (registerStep === 3 && registrationPolicyLoading)} loading={busy || addressLookupBusy} /></View>
               </View>
+            </> : resetStage === 'request' ? <>
+              <Field label="Username" value={resetUsername} onChangeText={setResetUsername} placeholder="Your username" autoCapitalize="none" autoCorrect={false} />
+              <Field label="Phone number on your account" value={resetPhoneNumber} onChangeText={setResetPhoneNumber} placeholder="09XX XXX XXXX" keyboardType="numeric" maxLength={25} autoCapitalize="none" autoCorrect={false} />
+              <Text style={styles.helperText}>We’ll text a one-time code to the phone number saved on this account. The message won’t reveal whether the details match.</Text>
+              <Button label={busy ? 'Sending code…' : 'Send verification code'} onPress={() => void requestPasswordReset()} disabled={busy} loading={busy} />
+            </> : resetStage === 'confirm' ? <>
+              {resetMessage ? <Notice text={resetMessage} tone="info" /> : null}
+              <Field label="6-digit verification code" value={resetCode} onChangeText={value => setResetCode(value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" keyboardType="numeric" maxLength={6} autoCapitalize="none" autoCorrect={false} />
+              <Field label="New password (10 characters minimum)" value={resetPassword} onChangeText={setResetPassword} placeholder="Create a new password" secureTextEntry showPasswordToggle autoCapitalize="none" autoCorrect={false} />
+              <Field label="Confirm new password" value={resetConfirmPassword} onChangeText={setResetConfirmPassword} placeholder="Enter your new password again" secureTextEntry showPasswordToggle autoCapitalize="none" autoCorrect={false} />
+              <Button label={busy ? 'Updating password…' : 'Update password'} onPress={() => void confirmPasswordReset()} disabled={busy} loading={busy} />
             </> : <>
               <Field label="Username" value={loginUsername} onChangeText={setLoginUsername} placeholder="Your username" autoCapitalize="none" autoCorrect={false} />
               <Field label="Password" value={password} onChangeText={setPassword} placeholder="Your password" secureTextEntry showPasswordToggle autoCapitalize="none" />
               <Button label={busy ? 'Connecting…' : 'Sign in'} onPress={() => void signIn()} disabled={busy} loading={busy} />
+              <TouchableOpacity style={styles.linkButton} onPress={openPasswordReset} accessibilityRole="button">
+                <Text style={styles.linkText}>Forgot password?</Text>
+              </TouchableOpacity>
             </>}
-            <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); if (!isRegistering) setRegisterStep(0); setError('');}}>
+            {isRegistering || !isResetting ? <TouchableOpacity style={styles.linkButton} onPress={() => {setMode(isRegistering ? 'login' : 'register'); if (!isRegistering) setRegisterStep(0); setPasswordResetSuccess(false); setError('');}}>
               <Text style={styles.linkText}>{isRegistering ? 'Already registered? Sign in' : 'New to RSSI? Create an account'}</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> : <TouchableOpacity style={styles.linkButton} onPress={() => {setResetStage(null); setError(''); setResetMessage('');}}>
+              <Text style={styles.linkText}>Back to sign in</Text>
+            </TouchableOpacity>}
           </View>
           <View style={styles.authFooter}>
             <Text style={styles.authFooterText}>SRA • Negros Oriental & Negros Occidental</Text>

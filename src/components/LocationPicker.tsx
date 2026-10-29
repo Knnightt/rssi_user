@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {View} from 'react-native';
 import {WebView, WebViewMessageEvent} from 'react-native-webview';
-import {FarmCoordinates} from '../location';
+import {FarmBoundaryPoint, FarmCoordinates} from '../location';
 import {styles} from '../theme';
 
 const NEGROS_CENTER: FarmCoordinates = {latitude: 9.35, longitude: 122.95};
@@ -28,10 +28,16 @@ const PickerWebView = WebView as unknown as React.ComponentType<PickerWebViewPro
 export function LocationPicker({
   value,
   onChange,
+  boundary = [],
+  boundaryDrawing = false,
+  onBoundaryChange,
   onGestureActive,
 }: {
   value: FarmCoordinates | null;
   onChange: (coordinates: FarmCoordinates) => void;
+  boundary?: FarmBoundaryPoint[];
+  boundaryDrawing?: boolean;
+  onBoundaryChange?: (points: FarmBoundaryPoint[]) => void;
   onGestureActive?: (active: boolean) => void;
 }) {
   const webView = useRef<WebView | null>(null);
@@ -39,6 +45,7 @@ export function LocationPicker({
   const [html] = useState(() => createPickerHtml(value));
   const latitude = value?.latitude;
   const longitude = value?.longitude;
+  const boundaryJson = JSON.stringify(boundary);
 
   const updatePin = useCallback((coordinates: FarmCoordinates | null) => {
     if (!coordinates) {
@@ -58,9 +65,23 @@ export function LocationPicker({
     updatePin(latitude !== undefined && longitude !== undefined ? {latitude, longitude} : null);
   }, [latitude, longitude, mapReady, updatePin]);
 
+  useEffect(() => {
+    if (!mapReady) return;
+    webView.current?.injectJavaScript(
+      `window.setFarmBoundary && window.setFarmBoundary(${boundaryJson}); true;`,
+    );
+  }, [boundaryJson, mapReady]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    webView.current?.injectJavaScript(
+      `window.setBoundaryDrawing && window.setBoundaryDrawing(${boundaryDrawing ? 'true' : 'false'}); true;`,
+    );
+  }, [boundaryDrawing, mapReady]);
+
   const handleMessage = useCallback((event: WebViewMessageEvent) => {
     try {
-      const message = JSON.parse(event.nativeEvent.data) as {type?: string; latitude?: number; longitude?: number; active?: boolean};
+      const message = JSON.parse(event.nativeEvent.data) as {type?: string; latitude?: number; longitude?: number; active?: boolean; points?: FarmBoundaryPoint[]};
       if (message.type === 'ready') {
         setMapReady(true);
         return;
@@ -72,10 +93,14 @@ export function LocationPicker({
       if (message.type === 'location' && Number.isFinite(message.latitude) && Number.isFinite(message.longitude)) {
         onChange({latitude: Number(message.latitude), longitude: Number(message.longitude), source: 'manual'});
       }
+      if (message.type === 'boundary' && Array.isArray(message.points)) {
+        const points = message.points.filter(point => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+        onBoundaryChange?.(points);
+      }
     } catch {
       // Ignore malformed messages from the embedded map.
     }
-  }, [onChange, onGestureActive]);
+  }, [onBoundaryChange, onChange, onGestureActive]);
 
   return (
     <View style={styles.locationPickerFrame}>
@@ -107,13 +132,17 @@ function createPickerHtml(value: FarmCoordinates | null): string {
 <style>
 html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9ed;font:13px Arial,sans-serif;touch-action:none}
 #tiles{position:absolute;inset:0;overflow:hidden}.tile{position:absolute;width:256px;height:256px;max-width:none;user-select:none;-webkit-user-drag:none}
+#boundary{position:absolute;inset:0;width:100%;height:100%;z-index:2;overflow:visible;pointer-events:none}
+#boundary polygon{fill:rgba(37,99,235,.22);stroke:#2563eb;stroke-width:3;vector-effect:non-scaling-stroke}
+#boundary polyline{fill:none;stroke:#2563eb;stroke-width:3;vector-effect:non-scaling-stroke}
+#boundary circle{fill:#2563eb;stroke:#fff;stroke-width:2;vector-effect:non-scaling-stroke}
 #pin{position:absolute;z-index:3;width:25px;height:25px;display:none;background:#f04b32;border:3px solid #fff;border-radius:50% 50% 50% 0;box-shadow:0 2px 5px rgba(0,0,0,.3);transform:translate(-50%,-100%) rotate(-45deg);pointer-events:none}
 #pin:after{content:'';position:absolute;width:7px;height:7px;border-radius:50%;background:#fff;left:6px;top:6px}
 .zoom{position:absolute;right:10px;z-index:4;width:34px;height:34px;background:#fff;border:1px solid #b8c4cb;color:#26343c;font-size:22px;line-height:30px;text-align:center;border-radius:5px;box-shadow:0 1px 4px #87939a}.plus{top:10px}.minus{top:49px}
 #attribution{position:absolute;right:4px;bottom:2px;z-index:4;padding:2px 4px;background:rgba(255,255,255,.8);font-size:9px;color:#39444a}
 #tile-message{display:none;position:absolute;z-index:5;left:8px;right:52px;top:8px;padding:7px 9px;border-radius:5px;background:rgba(255,255,255,.94);font-size:11px;color:#46545b}
 </style></head><body>
-<div id="map" aria-label="Drag with one finger to pan. Pinch with two fingers to zoom. Tap to place the farm pin."><div id="tiles"></div><div id="pin"></div>
+<div id="map" aria-label="Drag with one finger to pan. Pinch with two fingers to zoom. Tap to place the farm pin or add boundary corners while drawing."><div id="tiles"></div><svg id="boundary" aria-hidden="true"></svg><div id="pin"></div>
 <button class="zoom plus" aria-label="Zoom in">+</button><button class="zoom minus" aria-label="Zoom out">−</button>
 <div id="tile-message">Map tiles did not load. Check your internet connection.</div>
 <div id="attribution">© OpenStreetMap contributors</div></div>
@@ -121,11 +150,14 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
 (function(){
   var map=document.getElementById('map');
   var layer=document.getElementById('tiles');
+  var boundaryLayer=document.getElementById('boundary');
   var pin=document.getElementById('pin');
   var message=document.getElementById('tile-message');
   var center={lat:${latitude},lng:${longitude}};
   var zoom=${zoom};
   var selected=null;
+  var boundary=[];
+  var boundaryDrawing=false;
   var drag=null;
   var firstRender=true;
   var renderVersion=0;
@@ -152,6 +184,27 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
     pin.style.top=(map.clientHeight/2)+'px';
     pin.style.display='block';
   }
+  function drawBoundary(){
+    boundaryLayer.innerHTML='';
+    if(boundary.length===0)return;
+    var centerPoint=project(center.lat,center.lng,zoom);
+    var screenPoints=boundary.map(function(point){
+      var p=project(point.latitude,point.longitude,zoom);
+      return {x:p.x-centerPoint.x+map.clientWidth/2,y:p.y-centerPoint.y+map.clientHeight/2};
+    });
+    var values=screenPoints.map(function(point){return point.x+','+point.y;}).join(' ');
+    if(boundary.length>=3){
+      var polygon=document.createElementNS('http://www.w3.org/2000/svg','polygon');
+      polygon.setAttribute('points',values);boundaryLayer.appendChild(polygon);
+    }else if(boundary.length>=2){
+      var line=document.createElementNS('http://www.w3.org/2000/svg','polyline');
+      line.setAttribute('points',values);boundaryLayer.appendChild(line);
+    }
+    screenPoints.forEach(function(point){
+      var dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      dot.setAttribute('cx',String(point.x));dot.setAttribute('cy',String(point.y));dot.setAttribute('r','6');boundaryLayer.appendChild(dot);
+    });
+  }
   function render(){
     var version=++renderVersion;
     var w=map.clientWidth,h=map.clientHeight;
@@ -177,6 +230,7 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
       }
     }
     placePin();
+    drawBoundary();
     if(firstRender){
       firstRender=false;
       if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready'}));
@@ -188,6 +242,11 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
     else placePin();
   };
   window.clearFarmPin=function(){selected=null;placePin();};
+  window.setFarmBoundary=function(points){
+    boundary=Array.isArray(points)?points.filter(function(point){return point&&Number.isFinite(Number(point.latitude))&&Number.isFinite(Number(point.longitude));}).map(function(point){return {latitude:Number(point.latitude),longitude:Number(point.longitude)};}):[];
+    drawBoundary();
+  };
+  window.setBoundaryDrawing=function(active){boundaryDrawing=active===true;map.style.cursor=boundaryDrawing?'crosshair':'grab';};
   map.addEventListener('click',function(e){
     if(Date.now()<ignoreNextClickUntil){ignoreNextClickUntil=0;return;}
     if(e.target.closest('.zoom'))return;
@@ -195,6 +254,12 @@ html,body,#map{height:100%;width:100%;margin:0;overflow:hidden;background:#dce9e
     var c=project(center.lat,center.lng,zoom);
     var point=unproject(c.x+e.clientX-rect.left-map.clientWidth/2,
       c.y+e.clientY-rect.top-map.clientHeight/2,zoom);
+    if(boundaryDrawing){
+      boundary.push({latitude:Number(point.lat.toFixed(7)),longitude:Number(point.lng.toFixed(7))});
+      drawBoundary();
+      if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:'boundary',points:boundary}));
+      return;
+    }
     center={lat:Number(point.lat.toFixed(7)),lng:Number(point.lng.toFixed(7))};
     selected={lat:center.lat,lng:center.lng};
     zoom=Math.max(14,zoom);

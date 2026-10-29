@@ -5,7 +5,7 @@ import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
 import type {Asset} from 'react-native-image-picker';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {apiRequest, CommunityUpdate, FarmProperty, Farmer, FieldReport, geocodeFarmBarangayLocation, reverseGeocodeFarmLocation, uploadProfilePhoto} from '../api';
-import {captureFarmCoordinates, FarmCoordinates, farmLocationSourceLabel} from '../location';
+import {captureFarmCoordinates, FarmBoundaryPoint, FarmCoordinates, farmLocationSourceLabel} from '../location';
 import {LocationPicker} from '../components/LocationPicker';
 import {FarmCoordinateFields} from '../components/FarmCoordinateFields';
 import {DropdownField} from '../components/DropdownField';
@@ -58,6 +58,8 @@ export default function FarmerShell(props: {
   const [farmValues, setFarmValues] = useState({name: '', province: 'Negros Oriental', municipality: '', barangay: '', address: '', size: ''});
   const [farmLocationConsent, setFarmLocationConsent] = useState(false);
   const [farmCoordinates, setFarmCoordinates] = useState<FarmCoordinates | null>(null);
+  const [farmBoundaryCoordinates, setFarmBoundaryCoordinates] = useState<FarmBoundaryPoint[]>([]);
+  const [farmBoundaryDrawing, setFarmBoundaryDrawing] = useState(false);
   const [farmLocationBusy, setFarmLocationBusy] = useState(false);
   const farmLocationRequest = useRef(0);
   const [farmMapGestureActive, setFarmMapGestureActive] = useState(false);
@@ -210,8 +212,8 @@ export default function FarmerShell(props: {
       setFarmMessage('Enter a farm name, select a municipality and barangay, and enter a farm area greater than zero.');
       return;
     }
-    if (farmLocationConsent && !farmCoordinates) {
-      setFarmMessage(t('Choose a point on the map or use current location before saving consent.'));
+    if (farmLocationConsent && !farmCoordinates && farmBoundaryCoordinates.length < 3) {
+      setFarmMessage(t('Choose a farm pin or draw at least three boundary corners before sharing the exact location.'));
       return;
     }
     setFarmBusy(true);
@@ -228,8 +230,9 @@ export default function FarmerShell(props: {
           sizeHectares: farmValues.size ? Number(farmValues.size) : null,
           latitude: farmLocationConsent ? farmCoordinates?.latitude ?? null : null,
           longitude: farmLocationConsent ? farmCoordinates?.longitude ?? null : null,
-          locationSource: farmLocationConsent && farmCoordinates ? farmCoordinates.source || 'unknown' : 'unknown',
-          gpsAccuracyMeters: farmLocationConsent && farmCoordinates?.source === 'gps' ? farmCoordinates.accuracy ?? null : null,
+          boundaryCoordinates: farmLocationConsent ? farmBoundaryCoordinates : [],
+          locationSource: farmLocationConsent && farmBoundaryCoordinates.length >= 3 ? 'boundary' : farmLocationConsent && farmCoordinates ? farmCoordinates.source || 'unknown' : 'unknown',
+          gpsAccuracyMeters: farmLocationConsent && farmBoundaryCoordinates.length < 3 && farmCoordinates?.source === 'gps' ? farmCoordinates.accuracy ?? null : null,
           locationConsent: farmLocationConsent,
         }),
       });
@@ -238,6 +241,8 @@ export default function FarmerShell(props: {
       setFarmMessage('Farm added to your account.');
       setFarmLocationConsent(false);
       setFarmCoordinates(null);
+      setFarmBoundaryCoordinates([]);
+      setFarmBoundaryDrawing(false);
       await props.onRefresh().catch(() => undefined);
       setSelectedFarm(response.data.id);
     } catch (error) {
@@ -328,6 +333,8 @@ export default function FarmerShell(props: {
     farmLocationRequest.current += 1;
     setFarmLocationBusy(false);
     setFarmCoordinates(null);
+    setFarmBoundaryCoordinates([]);
+    setFarmBoundaryDrawing(false);
     setFarmMessage('');
     setFarmValues(current => ({...current, province, municipality: '', barangay: ''}));
   };
@@ -336,6 +343,8 @@ export default function FarmerShell(props: {
     farmLocationRequest.current += 1;
     setFarmLocationBusy(false);
     setFarmCoordinates(null);
+    setFarmBoundaryCoordinates([]);
+    setFarmBoundaryDrawing(false);
     setFarmMessage('');
     setFarmValues(current => ({...current, municipality, barangay: ''}));
   };
@@ -343,6 +352,8 @@ export default function FarmerShell(props: {
   const selectFarmBarangay = async (barangay: string) => {
     const request = ++farmLocationRequest.current;
     setFarmCoordinates(null);
+    setFarmBoundaryCoordinates([]);
+    setFarmBoundaryDrawing(false);
     setFarmValues(current => ({...current, barangay}));
     setFarmLocationBusy(true);
     setFarmMessage('Finding this barangay on the map…');
@@ -370,6 +381,8 @@ export default function FarmerShell(props: {
     setFarmMessage('');
     setLocationEditProperty(property);
     setFarmLocationConsent(property.location_consent);
+    setFarmBoundaryCoordinates(property.location_consent ? property.boundary_coordinates || [] : []);
+    setFarmBoundaryDrawing(false);
     setFarmCoordinates(property.location_consent && property.latitude !== null && property.longitude !== null
       ? {
         latitude: Number(property.latitude),
@@ -382,8 +395,8 @@ export default function FarmerShell(props: {
 
   const saveFarmLocation = async () => {
     if (!locationEditProperty) return;
-    if (farmLocationConsent && !farmCoordinates) {
-      setFarmMessage(t('Choose a point on the map or use current location before saving consent.'));
+    if (farmLocationConsent && !farmCoordinates && farmBoundaryCoordinates.length < 3) {
+      setFarmMessage(t('Choose a farm pin or draw at least three boundary corners before sharing the exact location.'));
       return;
     }
     setFarmBusy(true);
@@ -394,13 +407,16 @@ export default function FarmerShell(props: {
         body: JSON.stringify({
           latitude: farmCoordinates?.latitude ?? null,
           longitude: farmCoordinates?.longitude ?? null,
-          locationSource: farmLocationConsent && farmCoordinates ? farmCoordinates.source || 'unknown' : 'unknown',
-          gpsAccuracyMeters: farmLocationConsent && farmCoordinates?.source === 'gps' ? farmCoordinates.accuracy ?? null : null,
+          boundaryCoordinates: farmLocationConsent ? farmBoundaryCoordinates : [],
+          locationSource: farmLocationConsent && farmBoundaryCoordinates.length >= 3 ? 'boundary' : farmLocationConsent && farmCoordinates ? farmCoordinates.source || 'unknown' : 'unknown',
+          gpsAccuracyMeters: farmLocationConsent && farmBoundaryCoordinates.length < 3 && farmCoordinates?.source === 'gps' ? farmCoordinates.accuracy ?? null : null,
           locationConsent: farmLocationConsent,
         }),
       });
       setLocationEditProperty(null);
       setFarmCoordinates(null);
+      setFarmBoundaryCoordinates([]);
+      setFarmBoundaryDrawing(false);
       setFarmLocationConsent(false);
       setFarmMessage(farmLocationConsent ? 'Farm location updated.' : 'Farm pin removed from SRA Map Monitoring.');
       await props.onRefresh().catch(() => undefined);
@@ -525,11 +541,18 @@ export default function FarmerShell(props: {
             title={t('Show this farm in SRA Map Monitoring')}
             description={t('Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.')}
             value={farmLocationConsent}
-            onValueChange={value => {setFarmLocationConsent(value); if (!value) setFarmCoordinates(null);}}
+            onValueChange={value => {setFarmLocationConsent(value); if (!value) {setFarmCoordinates(null); setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}}}
           />
           {farmLocationConsent ? <>
             <Text style={styles.helperText}>{t('Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.')}</Text>
-            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} boundary={farmBoundaryCoordinates} boundaryDrawing={farmBoundaryDrawing} onBoundaryChange={setFarmBoundaryCoordinates} onGestureActive={setFarmMapGestureActive} />
+            <Text style={styles.helperText}>{t('Draw the farm outline by tapping each corner in order. Use at least three corners; the saved polygon marks the actual farm area in SRA Map Monitoring.')}</Text>
+            <View style={styles.buttonRow}>
+              <Button label={farmBoundaryDrawing ? t('Finish boundary') : t('Draw farm boundary')} kind="light" onPress={() => setFarmBoundaryDrawing(active => !active)} />
+              <Button label={t('Undo corner')} kind="light" disabled={!farmBoundaryCoordinates.length} onPress={() => setFarmBoundaryCoordinates(points => points.slice(0, -1))} />
+              <Button label={t('Clear boundary')} kind="light" disabled={!farmBoundaryCoordinates.length} onPress={() => {setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}} />
+            </View>
+            <Text style={styles.helperText}>{farmBoundaryCoordinates.length} {t('boundary corners')}</Text>
             <FarmCoordinateFields value={farmCoordinates} onChange={setFarmCoordinates} />
             <Text style={styles.helperText}>{t('Street map uses OpenStreetMap data. Map tiles need internet; GPS works separately.')}</Text>
             <Button label={farmLocationBusy ? t('Getting location…') : farmCoordinates ? t('Farm pin selected') : t('Use current location')} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={() => {
@@ -544,7 +567,7 @@ export default function FarmerShell(props: {
           {!networkConnected ? <Text style={styles.helperText}>{t('Adding a farm needs a connection. You can still save reports about farms already on your account.')}</Text> : null}
           <View style={styles.buttonRow}>
             <Button label={t('Cancel')} kind="light" onPress={() => {setLocationEditProperty(null); setFarmCoordinates(null); setFarmLocationConsent(false); setFarmMessage('');}} />
-            <Button label={farmBusy ? t('Saving location…') : t('Save location')} onPress={saveFarmLocation} disabled={!networkConnected || farmBusy || (farmLocationConsent && !farmCoordinates)} loading={farmBusy} />
+            <Button label={farmBusy ? t('Saving location…') : t('Save location')} onPress={saveFarmLocation} disabled={!networkConnected || farmBusy || (farmLocationConsent && !farmCoordinates && farmBoundaryCoordinates.length < 3)} loading={farmBusy} />
           </View>
         </>
       ) : farmForm ? (
@@ -575,34 +598,44 @@ export default function FarmerShell(props: {
           />
           <Field label="Complete farm address" value={farmValues.address} onChangeText={value => setFarmValues(current => ({...current, address: value}))} placeholder="House / lot, sitio or purok, barangay, municipality, province" multiline autoCapitalize="words" />
           <Field label="Farm area (hectares) *" value={farmValues.size} onChangeText={value => setFarmValues(current => ({...current, size: value.replace(/[^0-9.]/g, '')}))} placeholder="0.00" keyboardType="decimal-pad" />
-          <Text style={styles.helperText}>Required to size your farm circle on the map.</Text>
+          <Text style={styles.helperText}>{t('The saved boundary draws the actual farm area. If you do not draw a boundary, the map uses this area as an approximate circle.')}</Text>
           <ToggleLine
             title={t('Show this farm in SRA Map Monitoring')}
             description={t('Turn this on and save a pin to show this farm to authorized SRA staff. Leave it off to keep the exact location private.')}
             value={farmLocationConsent}
-            onValueChange={setFarmLocationConsent}
+            onValueChange={value => {setFarmLocationConsent(value); if (!value) {setFarmCoordinates(null); setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}}}
           />
           {farmValues.barangay || farmCoordinates ? <>
           <Text style={styles.helperText}>Drag with one finger to move the map. Pinch with two fingers to zoom. Tap to place the pin.</Text>
-            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} onGestureActive={setFarmMapGestureActive} />
+            <LocationPicker value={farmCoordinates} onChange={setFarmCoordinates} boundary={farmBoundaryCoordinates} boundaryDrawing={farmBoundaryDrawing} onBoundaryChange={setFarmBoundaryCoordinates} onGestureActive={setFarmMapGestureActive} />
+            {farmLocationConsent ? <>
+              <Text style={styles.helperText}>{t('Draw the farm outline by tapping each corner in order. Use at least three corners; the saved polygon marks the actual farm area in SRA Map Monitoring.')}</Text>
+              <View style={styles.buttonRow}>
+                <Button label={farmBoundaryDrawing ? t('Finish boundary') : t('Draw farm boundary')} kind="light" onPress={() => setFarmBoundaryDrawing(active => !active)} />
+                <Button label={t('Undo corner')} kind="light" disabled={!farmBoundaryCoordinates.length} onPress={() => setFarmBoundaryCoordinates(points => points.slice(0, -1))} />
+                <Button label={t('Clear boundary')} kind="light" disabled={!farmBoundaryCoordinates.length} onPress={() => {setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}} />
+              </View>
+              <Text style={styles.helperText}>{farmBoundaryCoordinates.length} {t('boundary corners')}</Text>
+            </> : <Text style={styles.helperText}>{t('Enable map sharing above to draw and save an exact farm boundary.')}</Text>}
             <FarmCoordinateFields value={farmCoordinates} onChange={setFarmCoordinates} />
             {farmLocationBusy ? <Text style={styles.helperText}>Getting your current location…</Text> : null}
             {farmCoordinates ? <>
               <Text style={styles.helperText}>{t('Pin source')}: {t(farmLocationSourceLabel(farmCoordinates.source))}</Text>
               {farmCoordinates.source === 'gps' && farmCoordinates.accuracy !== undefined ? <Text style={styles.helperText}>{t('GPS accuracy')}: ±{Math.round(farmCoordinates.accuracy)} m</Text> : null}
             </> : !farmLocationBusy ? <Text style={styles.helperText}>Choose a point on the map or use current location.</Text> : null}
+            {farmBoundaryCoordinates.length >= 3 ? <Text style={styles.helperText}>{t('Farm area will be calculated from the drawn boundary when saved.')}</Text> : null}
             <Button label={farmLocationBusy ? 'Getting location…' : 'Use current location'} kind="light" disabled={farmLocationBusy} loading={farmLocationBusy} onPress={captureNewFarmLocation} />
             {!farmLocationConsent ? <Text style={styles.helperText}>The pin is only saved when you enable location consent above.</Text> : null}
           </> : null}
           {!networkConnected ? <Text style={styles.helperText}>Adding a farm needs a connection. You can still save reports about farms already on your account.</Text> : null}
           <View style={styles.buttonRow}>
-            <Button label="Cancel" kind="light" onPress={() => {setFarmForm(false); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
-            <Button label={t('Save farm')} onPress={saveFarm} disabled={!networkConnected || farmBusy || (farmLocationConsent && !farmCoordinates)} loading={farmBusy} />
+            <Button label="Cancel" kind="light" onPress={() => {setFarmForm(false); setFarmLocationConsent(false); setFarmCoordinates(null); setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}} />
+            <Button label={t('Save farm')} onPress={saveFarm} disabled={!networkConnected || farmBusy || (farmLocationConsent && !farmCoordinates && farmBoundaryCoordinates.length < 3)} loading={farmBusy} />
           </View>
         </>
       ) : (
         <>
-          <Button label="＋  Add a farm" kind="light" onPress={() => {setLocationEditProperty(null); setFarmForm(true); setFarmMessage(''); setFarmLocationConsent(false); setFarmCoordinates(null);}} />
+          <Button label="＋  Add a farm" kind="light" onPress={() => {setLocationEditProperty(null); setFarmForm(true); setFarmMessage(''); setFarmLocationConsent(false); setFarmCoordinates(null); setFarmBoundaryCoordinates([]); setFarmBoundaryDrawing(false);}} />
           {properties.length === 0 ? <EmptyState icon="⌖" title="No farms added yet" description="Add your farm to start reporting field observations." /> : null}
           {properties.map(property => <View key={property.id}>
             <FarmRow property={property} onPress={() => setSelectedFarm(property.id)} selected={selectedFarm === property.id} />

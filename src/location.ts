@@ -3,6 +3,7 @@ import Geolocation from '@react-native-community/geolocation';
 
 export type FarmLocationSource = 'gps' | 'address_lookup' | 'manual' | 'boundary' | 'unknown';
 export type FarmCoordinates = {latitude: number; longitude: number; accuracy?: number; source?: FarmLocationSource};
+export type FarmBoundaryPoint = {latitude: number; longitude: number};
 
 export function farmLocationSourceLabel(source?: FarmLocationSource | null): string {
   switch (source) {

@@ -23,6 +23,7 @@ export type FarmProperty = {
   size_hectares: string | null;
   latitude: number | null;
   longitude: number | null;
+  boundary_coordinates?: Array<{latitude: number; longitude: number}>;
   location_consent: boolean;
   location_source?: 'gps' | 'address_lookup' | 'manual' | 'boundary' | 'unknown' | null;
   gps_accuracy_m?: number | null;
@@ -219,6 +220,8 @@ export class ApiError extends Error {
 function humanizeCode(code: string): string {
   const messages: Record<string, string> = {
     invalid_credentials: 'That username and password did not match.',
+    invalid_or_expired_reset_code: 'The code is invalid or expired. Request a new code and try again.',
+    rate_limit_exceeded: 'Too many attempts. Wait a little while and try again.',
     account_unavailable: 'This account is not available. Contact SRA support.',
     email_already_registered: 'An account already uses this email address.',
     username_already_registered: 'That username is already in use. Choose another.',
