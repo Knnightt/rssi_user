@@ -148,7 +148,7 @@ export default function useFarmerWorkspace(
     } catch (error) {
       setServerReachable(false);
       if (error instanceof ApiError && error.status === 401) {
-        onMessage('Your session has expired. Sign in again to sync reports.');
+        onMessage('Session expired. Sign in again.');
       }
       throw error;
     }

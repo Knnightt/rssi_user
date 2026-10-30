@@ -189,7 +189,7 @@ export default function FarmerShell(props: {
     try {
       await props.onRefresh();
     } catch {
-      onMessage('Could not refresh RSSI data. Check your connection and try again.');
+      onMessage("Couldn't refresh data. Try again later.");
     } finally {
       setRefreshing(false);
     }

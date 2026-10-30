@@ -217,49 +217,71 @@ export class ApiError extends Error {
   }
 }
 
+const errorMessages: Record<string, string> = {
+  invalid_credentials: 'Username or password is incorrect.',
+  invalid_or_expired_reset_code: 'Code expired or incorrect. Request a new one.',
+  rate_limit_exceeded: 'Too many attempts. Try again later.',
+  account_unavailable: 'Account inactive. Contact SRA.',
+  email_already_registered: 'Email already in use.',
+  username_already_registered: 'Username already in use. Choose another.',
+  invalid_philippine_mobile_number: 'Enter a valid phone number.',
+  unauthorized: 'Session expired. Sign in again.',
+  precise_location_disabled: 'Exact farm locations are unavailable right now.',
+  property_not_found: 'Farm no longer available. Choose it again.',
+  report_not_found: 'Report no longer available.',
+  community_report_not_found: 'Shared report no longer available.',
+  photo_not_found: 'Photo no longer available.',
+  photo_limit_exceeded: 'Choose up to five photos.',
+  invalid_photo: 'Choose JPG or PNG photos under 10 MB.',
+  invalid_photo_ids: 'Select the photos again and retry.',
+  invalid_profile_photo: 'Choose a profile photo and try again.',
+  invalid_boundary: 'Check the farm boundary and try again.',
+  invalid_observed_date: 'Enter a valid observation date.',
+  invalid_verification_code: 'Code expired or incorrect. Request a new one.',
+  phone_verification_required: 'Verify your phone number to continue.',
+  phone_verification_disabled: 'Phone verification is off. Try again.',
+  forbidden: "This action isn't available for your account.",
+  unexpected_request_body: 'Update the app and try again.',
+};
+
+const statusMessages: Record<number, string> = {
+  400: 'Check the information and try again.',
+  401: 'Session expired. Sign in again.',
+  403: "This action isn't available for your account.",
+  404: 'This item is no longer available.',
+  409: 'This item changed. Refresh and try again.',
+  413: 'File is too large.',
+  415: 'Choose a supported file type.',
+  422: 'Check the information and try again.',
+  429: 'Too many attempts. Try again later.',
+};
+
 function humanizeCode(code: string): string {
-  const messages: Record<string, string> = {
-    invalid_credentials: 'That username and password did not match.',
-    invalid_or_expired_reset_code: 'The code is invalid or expired. Request a new code and try again.',
-    rate_limit_exceeded: 'Too many attempts. Wait a little while and try again.',
-    account_unavailable: 'This account is not available. Contact SRA support.',
-    email_already_registered: 'An account already uses this email address.',
-    username_already_registered: 'That username is already in use. Choose another.',
-    invalid_philippine_mobile_number: 'Enter a valid Philippine mobile number.',
-    unauthorized: 'Your session expired. Please sign in again.',
-    precise_location_disabled: 'Precise farm pins are disabled by the workspace.',
-    property_not_found: 'Select one of your saved farms and try again.',
-    forbidden: 'This action is not available for this account.',
-    http_500: 'The RSSI server failed while creating the account. Try signing in with the username and password you chose before registering again; the account may already have been created. If sign-in does not work, contact SRA support.',
-  };
-  return messages[code] || code.replaceAll('_', ' ');
+  if (errorMessages[code]) return errorMessages[code];
+  const httpStatus = /^http_(\d{3})$/.exec(code);
+  if (httpStatus) return statusMessages[Number(httpStatus[1])] || 'Could not complete this. Try again.';
+  return 'Could not complete this. Try again.';
 }
 
-async function decodeResponse<T>(response: Response): Promise<T> {
+function serverErrorMessage(path: string): string {
+  if (path === '/auth/login') return "Can't sign in right now. Try again later.";
+  if (path === '/auth/register') return "Sign-up didn't finish. Try signing in; the account may exist.";
+  if (path.startsWith('/farmers/me/reports')) return "Couldn't sync your report. It's saved on this device.";
+  if (path === '/me/profile-photo') return "Couldn't upload your photo. Try again later.";
+  if (path.includes('phone-verification')) return "Couldn't verify your phone. Try again later.";
+  return "Couldn't load this. Try again later.";
+}
+
+async function decodeResponse<T>(response: Response, path = ''): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
     const code = typeof body.error === 'string' ? body.error : `http_${response.status}`;
-    const violations = Array.isArray(body.violations)
-      ? body.violations
-          .map(item => {
-            if (!item || typeof item !== 'object') return '';
-            const violation = item as Record<string, unknown>;
-            const field = typeof violation.propertyPath === 'string' ? violation.propertyPath : '';
-            const message = typeof violation.title === 'string' ? violation.title : '';
-            return field && message ? `${field}: ${message}` : message;
-          })
-          .filter(Boolean)
-          .join('\n')
-      : '';
-    // Do not display server exception details for 5xx responses.
-    const detail = response.status >= 500
-      ? undefined
-      : typeof body.message === 'string'
-        ? body.message
-        : typeof body.detail === 'string'
-          ? body.detail
-          : violations || undefined;
-    throw new ApiError(response.status, code, detail || humanizeCode(code));
+    const message = response.status >= 500
+      ? serverErrorMessage(path)
+      : errorMessages[code] || (path === '/auth/login'
+        ? "Can't sign in right now. Try again later."
+        : statusMessages[response.status] || 'Could not complete this. Try again.');
+    throw new ApiError(response.status, code, message);
   }
   return body as T;
 }
@@ -286,9 +308,14 @@ export async function apiRequest<T>(
       headers,
     });
   } catch {
-    throw new ApiError(0, 'server_unavailable', 'Could not reach the RSSI server. Your report is safe on this device.');
+    const message = path === '/auth/login'
+      ? "Can't sign in right now. Check your internet and try again."
+      : path.startsWith('/farmers/me/reports')
+        ? "Can't sync now. Your report is saved on this device."
+        : "Can't connect. Check your internet and try again.";
+    throw new ApiError(0, 'server_unavailable', message);
   }
-  return decodeResponse<T>(response);
+  return decodeResponse<T>(response, path);
 }
 
 /** Build the server URL for an authenticated profile photo returned by the API. */
@@ -323,9 +350,9 @@ export async function uploadProfilePhoto(token: string, photo: Asset): Promise<{
       body: form,
     });
   } catch {
-    throw new ApiError(0, 'server_unavailable', 'Could not reach the RSSI server to upload your profile photo.');
+    throw new ApiError(0, 'server_unavailable', "Can't upload now. Try again later.");
   }
-  return decodeResponse<{profile_photo_url: string | null}>(response);
+  return decodeResponse<{profile_photo_url: string | null}>(response, '/me/profile-photo');
 }
 
 /** Requests a single address lookup through the RSSI API; provider credentials stay server-side. */
@@ -362,9 +389,9 @@ export function uploadPhoto(
         ? Math.min(99, Math.floor((event.loaded / event.total) * 100))
         : null);
     };
-    request.onerror = () => reject(new ApiError(0, 'server_unavailable', 'Could not upload this report photo. It remains saved on this device.'));
-    request.ontimeout = () => reject(new ApiError(0, 'upload_timeout', 'Photo upload timed out. It remains saved on this device.'));
-    request.onabort = () => reject(new ApiError(0, 'upload_cancelled', 'Photo upload was interrupted. It remains saved on this device.'));
+    request.onerror = () => reject(new ApiError(0, 'server_unavailable', "Can't upload now. The photo is saved on this device."));
+    request.ontimeout = () => reject(new ApiError(0, 'upload_timeout', 'Upload timed out. The photo is saved here.'));
+    request.onabort = () => reject(new ApiError(0, 'upload_cancelled', 'Upload stopped. The photo is saved here.'));
     request.onload = () => {
       let body: Record<string, unknown> = {};
       try {
@@ -375,12 +402,8 @@ export function uploadPhoto(
       if (request.status < 200 || request.status >= 300) {
         const code = typeof body.error === 'string' ? body.error : `http_${request.status}`;
         const message = request.status >= 500
-          ? 'Could not upload this report photo. It remains saved on this device.'
-          : typeof body.message === 'string'
-            ? body.message
-            : typeof body.detail === 'string'
-              ? body.detail
-              : humanizeCode(code);
+          ? "Couldn't upload the photo. It's saved on this device."
+          : errorMessages[code] || statusMessages[request.status] || 'Could not upload the photo. Try again.';
         reject(new ApiError(request.status, code, message));
         return;
       }
@@ -390,7 +413,7 @@ export function uploadPhoto(
     try {
       request.send(form);
     } catch {
-      reject(new ApiError(0, 'server_unavailable', 'Could not upload this report photo. It remains saved on this device.'));
+      reject(new ApiError(0, 'server_unavailable', "Can't upload now. The photo is saved on this device."));
     }
   });
 }
